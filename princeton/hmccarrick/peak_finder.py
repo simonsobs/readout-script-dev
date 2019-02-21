@@ -2,7 +2,7 @@
 '''
 Created on Thu Feb 21 10:10:49 2019
 
-@author: Heather
+@author: Heather McCarrick
 
 peak finder
 
@@ -24,6 +24,8 @@ def find_nearest(array, value):
 the function
 '''
 def get_peaks(freqsarr, s21arr, f_start=None, f_stop=None, f_delta = 1e5, res_num = 64):
+    #takes a freq and s21 mag array
+    #don't forget to change res_num to number of resonators you want (plus a few probably, then cut later)
     
     if f_start==None:
         #first just get the data for the frequency range we want

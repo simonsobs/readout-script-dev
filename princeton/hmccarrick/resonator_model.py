@@ -31,6 +31,7 @@ def general_cable(f, delay, phi, f_min, A_mag, A_slope):
     return magnitude_term*phase_term
     
 def resonator_cable(f, f_0, Q, Q_e_real, Q_e_imag, delay, phi, f_min, A_mag, A_slope):
+    #combine above functions into our full fitting functions
     resonator_term = linear_resonator(f, f_0, Q, Q_e_real, Q_e_imag) 
     cable_term = general_cable(f, delay, phi, f_min, A_mag, A_slope)
     return cable_term*resonator_term
@@ -39,6 +40,8 @@ def resonator_cable(f, f_0, Q, Q_e_real, Q_e_imag, delay, phi, f_min, A_mag, A_s
 then our main function
 '''
 def full_fit(freqs, real, imag):
+    #takes numpy arrays of freq, real and imag values
+    
 	#turn real and imag s21 into a single complex array
 	s21_complex = np.vectorize(complex)(real, imag)
 	
@@ -47,11 +50,11 @@ def full_fit(freqs, real, imag):
 	fmin = freqs.min()
 	fmax = freqs.max()
 	f_0_guess = freqs[argmin_s21]
-	Q_min = 0.1 * (f_0_guess / (fmax - fmin))  # assume not trying to fit just a small part of a resonance curve.
-	delta_f = np.diff(freqs)  # assume f is sorted
+	Q_min = 0.1 * (f_0_guess / (fmax - fmin))  
+	delta_f = np.diff(freqs)  
 	min_delta_f = delta_f[delta_f > 0].min()
-	Q_max = f_0_guess / min_delta_f  # assume data actually samples the resonance reasonably
-	Q_guess = np.sqrt(Q_min * Q_max)  # geometric mean, why not?
+	Q_max = f_0_guess / min_delta_f  
+	Q_guess = np.sqrt(Q_min * Q_max) 
 	s21_min = np.abs(s21_complex[argmin_s21])
 	s21_max = np.abs(s21_complex).max()
 	Q_e_real_guess = Q_guess / (1 - s21_min / s21_max)
@@ -84,13 +87,14 @@ def full_fit(freqs, real, imag):
 	return result
 
 def fine_s21_model(freqs_fine, fit_params):
+    #use this after fitting the data to get a prettier model
 	totalmodel = Model(resonator_cable)
 	params = totalmodel.make_params(**fit_params)
 	fine_model = totalmodel.eval(params, f=freqs_fine)
 	return fine_model
 
 '''
-some other functions you probably want
+some other functions you probably want that the fitting does not directly return
 '''
 def get_qi(Q, Q_e_real):
     return (Q**-1 - Q_e_real**-1)**-1
@@ -99,11 +103,12 @@ def get_br(Q, f_0):
     return f_0*(2 * Q)**-1
 
 def reduced_chi_squared(ydata, ymod, n_param=9, sd=None):
+    #red chi squared in lmfit does not return something reasonable 
+    #so here is a handwritten function
     #you want sd to be the complex error
+
     chisq = np.sum((np.real(ydata) - np.real(ymod))**2/((np.real(sd))**2)) + np.sum((np.imag(ydata) - np.imag(ymod))**2/((np.imag(sd))**2))
-    
-    #multiply by the usual by 2 since complex
-    nu=2*ydata.size-n_param
+    nu=2*ydata.size-n_param     #multiply  the usual by 2 since complex
     red_chisq = chisq/nu 
     return chisq, red_chisq
 
