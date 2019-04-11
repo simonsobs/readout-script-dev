@@ -1,0 +1,21 @@
+component,Loss (dB),T1,T2,Coax Y/N,Coax Type,Coax Length
+300 K hermetic SMA bulkhead,0.09,300,300,N,,
+CuNi 0.86mm,4.61,300,40,Y,CN0p86,0.2586
+40K SMA bulkhead,0.09,40,40,N,,
+40K Attenuator,6,40,40,N,,
+CuNi 0.86 mm,2.61,40,4,Y,CN0p86,0.1768
+4K SMA bulkhead,0.09,4,4,N,,
+4K attenuator,3,4,4,N,,
+Cu 0.141 coax,0.745,4,4,Y,CU3p58,2.5
+4K SMA bulkhead,0.09,4,4,N,,
+DC block,0.4,4,4,N,,
+CuNi 0.86mm,5.41,4,1,Y,CN0p86,0.216
+1K SMA bulkhead,0.09,1,1,N,,
+Cu 0.141 coax,0.216,1,1,Y,CU3p58,0.75
+1K SMA bulkhead,0.09,1,1,N,,
+1K attenuator,3,1,1,N,,
+DC block,0.4,1,1,Y,CN0p86,0.184
+CuNi 0.86mm,3.25,1,0.1,N,,
+0.1K attenuator,1,0.1,0.1,N,,
+0.1K SMA bulkhead,0.09,0.1,0.1,N,,
+Cu 0.141 coax,0.0995,0.1,0.1,Y,CU3p58,0.35
