@@ -21,9 +21,9 @@ Ntones_step = [500.,1000.,2000.]
 ####BW, Q_c, and f0 per assumptions stated in doc string
 BW_design = 100e3; #Fix BW designed = 100kHz
 Q_i_design = 200000. #Assume Q_i design was 200000.
-f_500_tones = np.linspace(4e9,5e9,num=500.)
-f_1000_tones = np.linspace(4e9,6e9,num=1000.)
-f_2000_tones = np.linspace(4e9,8e9,num=2000.)
+f_500_tones = np.linspace(4e9,5e9,num=500)
+f_1000_tones = np.linspace(4e9,6e9,num=1000)
+f_2000_tones = np.linspace(4e9,8e9,num=2000)
 Qc_500_tones = 1./((BW_design/f_500_tones) - (1/Q_i_design))
 Qc_1000_tones = 1./((BW_design/f_1000_tones) - (1/Q_i_design))
 Qc_2000_tones = 1./((BW_design/f_2000_tones) - (1/Q_i_design))
@@ -42,8 +42,8 @@ Qr_sweep_1000_tones = (1-Dip_sweep_1000_tones)*Qc_1000_tones
 Qr_sweep_2000_tones = (1-Dip_sweep_2000_tones)*Qc_2000_tones
 
 ####Sweep power into cryostat
-#P_sweep = np.arange(-38,-32) #Corresponds to -65 to -70 dBm at the feedline
-P_sweep = np.asarray([-38.]); #Corresponds to -70 dBm at the feedline
+P_sweep = np.arange(-38,-32) #Corresponds to -65 to -70 dBm at the feedline
+#P_sweep = np.asarray([-38.]); #Corresponds to -70 dBm at the feedline
 
 
 ####Initialize output NEI matrices for each noise source and each number of tones
@@ -80,10 +80,10 @@ for nton in range(len(Ntones_step)):
 		if Ntones_step[nton] == 500:
 			for dip in range(len(Dip_sweep_500_tones)):
 				K_PNF = nr.Pseudo_Noise_Floor_to_K(Pfeed,Qr_sweep_500_tones[dip],Qc_500_tones[dip],f0 = f_500_tones[dip],dfdI = dfdItyp,Ntones = Ntones_step[nton])
-				NEI_PNF_DipSweep_500[P,dip] = nr.TN_to_NEI(K_PNF,Pfeed,Qr_sweep_500_tones[dip],f0 = f_500_tones[dip],dfdI = dfdItyp)
-				NEI_HEMT_DipSweep_500[P,dip] = nr.TN_to_NEI(T_HEMT,Pfeed,Qr_sweep_500_tones[dip],f0 = f_500_tones[dip],dfdI = dfdItyp)
+				NEI_PNF_DipSweep_500[P,dip] = nr.TN_to_NEI(K_PNF,Pfeed,Qr_sweep_500_tones[dip],Qc_500_tones[dip],f0 = f_500_tones[dip],dfdI = dfdItyp)
+				NEI_HEMT_DipSweep_500[P,dip] = nr.TN_to_NEI(T_HEMT,Pfeed,Qr_sweep_500_tones[dip],Qc_500_tones[dip],f0 = f_500_tones[dip],dfdI = dfdItyp)
 				T_DAC = nr.refer_phase_noise_to_K(101.,lossin,Tavgin,P_sweep[P],Qr_sweep_500_tones[dip],Qc_500_tones[dip],f0 = f_500_tones[dip],dfdI = dfdItyp)
-				NEI_DAC_DipSweep_500[P,dip] = nr.TN_to_NEI(T_DAC,Pfeed,Qr_sweep_500_tones[dip],f0 = f_500_tones[dip],dfdI = dfdItyp)
+				NEI_DAC_DipSweep_500[P,dip] = nr.TN_to_NEI(T_DAC,Pfeed,Qr_sweep_500_tones[dip],Qc_500_tones[dip],f0 = f_500_tones[dip],dfdI = dfdItyp)
 				NEI_TOT_DipSweep_500[P,dip] = nr.quad_sum(nr.quad_sum(NEI_PNF_DipSweep_500[P,dip],NEI_HEMT_DipSweep_500[P,dip]),NEI_DAC_DipSweep_500[P,dip])
 			plt.plot(Dip_dB_sweep_500_tones,NEI_PNF_DipSweep_500[P,:],'r--',alpha = alpha_step[P],label = 'PNF: $P_{feed}$ = '+str(np.round(Pfeed,decimals = 0)))
 			plt.plot(Dip_dB_sweep_500_tones,NEI_HEMT_DipSweep_500[P,:],'g--',alpha = alpha_step[P],label = 'HEMT: $P_{feed}$ = '+str(np.round(Pfeed,decimals = 0)))
@@ -92,10 +92,10 @@ for nton in range(len(Ntones_step)):
 		if Ntones_step[nton] == 1000:			
 			for dip in range(len(Dip_sweep_1000_tones)):
 				K = nr.Pseudo_Noise_Floor_to_K(Pfeed,Qr_sweep_1000_tones[dip],Qc_1000_tones[dip],f0 = f_1000_tones[dip],dfdI = dfdItyp,Ntones = Ntones_step[nton])
-				NEI_PNF_DipSweep_1000[P,dip] = nr.TN_to_NEI(K,Pfeed,Qr_sweep_1000_tones[dip],f0 = f_1000_tones[dip],dfdI = dfdItyp)
-				NEI_HEMT_DipSweep_1000[P,dip] = nr.TN_to_NEI(T_HEMT,Pfeed,Qr_sweep_1000_tones[dip],f0 = f_1000_tones[dip],dfdI = dfdItyp)
+				NEI_PNF_DipSweep_1000[P,dip] = nr.TN_to_NEI(K,Pfeed,Qr_sweep_1000_tones[dip],Qc_1000_tones[dip],f0 = f_1000_tones[dip],dfdI = dfdItyp)
+				NEI_HEMT_DipSweep_1000[P,dip] = nr.TN_to_NEI(T_HEMT,Pfeed,Qr_sweep_1000_tones[dip],Qc_1000_tones[dip],f0 = f_1000_tones[dip],dfdI = dfdItyp)
 				T_DAC = nr.refer_phase_noise_to_K(101.,lossin,Tavgin,P_sweep[P],Qr_sweep_1000_tones[dip],Qc_1000_tones[dip],f0 = f_1000_tones[dip],dfdI = dfdItyp)
-				NEI_DAC_DipSweep_1000[P,dip] = nr.TN_to_NEI(T_DAC,Pfeed,Qr_sweep_1000_tones[dip],f0 = f_1000_tones[dip],dfdI = dfdItyp)
+				NEI_DAC_DipSweep_1000[P,dip] = nr.TN_to_NEI(T_DAC,Pfeed,Qr_sweep_1000_tones[dip],Qc_1000_tones[dip],f0 = f_1000_tones[dip],dfdI = dfdItyp)
 				NEI_TOT_DipSweep_1000[P,dip] = nr.quad_sum(nr.quad_sum(NEI_PNF_DipSweep_1000[P,dip],NEI_HEMT_DipSweep_1000[P,dip]),NEI_DAC_DipSweep_1000[P,dip])				
 			plt.plot(Dip_dB_sweep_1000_tones,NEI_PNF_DipSweep_1000[P,:],'r--',alpha = alpha_step[P],label = 'PNF: $P_{feed}$ = '+str(np.round(Pfeed,decimals = 0)))		
 			plt.plot(Dip_dB_sweep_1000_tones,NEI_HEMT_DipSweep_1000[P,:],'g--',alpha = alpha_step[P],label = 'HEMT: $P_{feed}$ = '+str(np.round(Pfeed,decimals = 0)))
@@ -104,10 +104,10 @@ for nton in range(len(Ntones_step)):
 		if Ntones_step[nton] == 2000:			
 			for dip in range(len(Dip_sweep_2000_tones)):
 				K = nr.Pseudo_Noise_Floor_to_K(Pfeed,Qr_sweep_2000_tones[dip],Qc_2000_tones[dip],f0 = f_2000_tones[dip],dfdI = dfdItyp,Ntones = Ntones_step[nton])
-				NEI_PNF_DipSweep_2000[P,dip] = nr.TN_to_NEI(K,Pfeed,Qr_sweep_2000_tones[dip],f0 = f_2000_tones[dip],dfdI = dfdItyp)
-				NEI_HEMT_DipSweep_2000[P,dip] = nr.TN_to_NEI(T_HEMT,Pfeed,Qr_sweep_2000_tones[dip],f0 = f_2000_tones[dip],dfdI = dfdItyp)
+				NEI_PNF_DipSweep_2000[P,dip] = nr.TN_to_NEI(K,Pfeed,Qr_sweep_2000_tones[dip],Qc_2000_tones[dip],f0 = f_2000_tones[dip],dfdI = dfdItyp)
+				NEI_HEMT_DipSweep_2000[P,dip] = nr.TN_to_NEI(T_HEMT,Pfeed,Qr_sweep_2000_tones[dip],Qc_2000_tones[dip],f0 = f_2000_tones[dip],dfdI = dfdItyp)
 				T_DAC = nr.refer_phase_noise_to_K(101.,lossin,Tavgin,P_sweep[P],Qr_sweep_2000_tones[dip],Qc_2000_tones[dip],f0 = f_2000_tones[dip],dfdI = dfdItyp)
-				NEI_DAC_DipSweep_2000[P,dip] = nr.TN_to_NEI(T_DAC,Pfeed,Qr_sweep_2000_tones[dip],f0 = f_2000_tones[dip],dfdI = dfdItyp)
+				NEI_DAC_DipSweep_2000[P,dip] = nr.TN_to_NEI(T_DAC,Pfeed,Qr_sweep_2000_tones[dip],Qc_2000_tones[dip],f0 = f_2000_tones[dip],dfdI = dfdItyp)
 				NEI_TOT_DipSweep_2000[P,dip] = nr.quad_sum(nr.quad_sum(NEI_PNF_DipSweep_2000[P,dip],NEI_HEMT_DipSweep_2000[P,dip]),NEI_DAC_DipSweep_2000[P,dip])				
 			plt.plot(Dip_dB_sweep_2000_tones,NEI_PNF_DipSweep_2000[P,:],'r--',alpha = alpha_step[P],label = 'PNF: $P_{feed}$ = '+str(np.round(Pfeed,decimals = 0)))
 			plt.plot(Dip_dB_sweep_2000_tones,NEI_HEMT_DipSweep_2000[P,:],'g--',alpha = alpha_step[P],label = 'HEMT: $P_{feed}$ = '+str(np.round(Pfeed,decimals = 0)))
@@ -126,7 +126,7 @@ for nton in range(len(Ntones_step)):
 	plt.yticks(np.arange(0, 110, step=10))
 	
 	####Save figure filepath + name.
-	#p.savefig('/home/msilvafe/Pictures/ExploreNoiseSources/SweepDip_NewReferral/PNF_and_Total'+str(int(Ntones_step[nton]))+'Tones.png',dpi = 96)#,bbox_inches='tight')
+	#p.savefig('/home/msilvafe/Pictures/ExploreNoiseSources/SweepDip_NewReferral_FixCoupling/PNF_and_Total'+str(int(Ntones_step[nton]))+'Tones_min70dBm.png',dpi = 96)#,bbox_inches='tight')
 	#plt.close()
 	
 ####Initialize output data dictionary
@@ -159,4 +159,4 @@ outdat['2000 Tones']['NEI PNF'] = NEI_PNF_DipSweep_2000
 outdat['2000 Tones']['NEI Total'] = NEI_TOT_DipSweep_2000
 
 ####Output dictionary save filepath + name
-#np.save('/home/msilvafe/Pictures/ExploreNoiseSources/SweepDip_NewReferral/SweepDip_min70dBm.npy',outdat)
+#np.save('/home/msilvafe/Pictures/ExploreNoiseSources/SweepDip_NewReferral_FixCoupling/SweepDip_FixCoupling_min70dBm.npy',outdat)
