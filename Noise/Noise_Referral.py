@@ -160,7 +160,7 @@ def refer_phase_noise_to_K(dBc,loss,temp,Pin, Qr, Qc, f0,dfdI, p=False):
 	K = P_noise_HEMT_input/k_b
 	return K
 
-def TN_to_NEI(T,Pfeed,Qr,f0,dfdI,p=False):
+def TN_to_NEI(T,Pfeed,Qr,Qc,f0,dfdI,p=False):
 	"""This is the referral that I calculate in a memo using the derivative of S21 with respect to frequency evaluated at the minimum of the resonator.
 
 	Parameters:
@@ -177,7 +177,7 @@ def TN_to_NEI(T,Pfeed,Qr,f0,dfdI,p=False):
 	
 	k_b = 1.38e-23;
 	Pfeed = 10.**(Pfeed/10.)*.001
-	Sf = (1./2.)*(f0**2/Qr**2)*(k_b*T/Pfeed)
+	Sf = ((Qc**2*f0**2)/(8*Qr**4))*(k_b*T/Pfeed)
 	NEI_HEMT = np.sqrt(Sf/dfdI**2)
 	return NEI_HEMT
 
