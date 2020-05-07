@@ -17,17 +17,30 @@ def Watts_to_Vrms(W):
 def Vrms_to_Vpk(Vrms):
 	return Vrms*np.sqrt(2)
 	
-def nonlinear_model(vin,a1,a2,a3):
+def FFT_to_dBm(V_wave, Z_0):
+	# Fourier transform a voltage wave to power spectrum
+	V_FFT = np.fft.fft(V_wave)
+	V_FFT_norm = 2*np.abs(V_FFT)/len(V_wave)
+	V_PS_dBm = 10*np.log10((V_FFT_norm/np.sqrt(2))**2/Z_0/.001)
+
+	return V_PS_dBm
+
+def nonlinear_model(vin,a1,a2,a3, clipping=True, pprange=1.35):
+	# Add in HEMT non-linearity and ADC clipping
 	vo = a1*vin + a2*vin**2 - a3*vin**3
-	for n in range(len(vo)):
-		if vo[n] > 1.35/2:
-			vo[n] = 1.35/2
-		if vo[n] < -1.35/2:
-			vo[n] = -1.35/2
+
+	if clipping ==True:
+		for n in range(len(vo)):
+			if vo[n] > pprange/2:
+				vo[n] = pprange/2
+			if vo[n] < -pprange/2:
+				vo[n] = -pprange/2
 	return vo
 
-def Gen_V_Wave_From_Assemlby(pickle_file,P_feed_dBm,T):
+def read_assembly_dataframe(pickle_file):
 	#Read in frequencies + Q's from MMB/Assembly
+	#Assume frequency is in Hz
+
 	df_mmb = pd.read_pickle(pickle_file)
 		
 	idx_not_nan = np.logical_not(np.isnan(df_mmb['br']))
@@ -45,39 +58,59 @@ def Gen_V_Wave_From_Assemlby(pickle_file,P_feed_dBm,T):
 	f0s_reas = f0s[idx_reasonable]
 	brs_reas = brs[idx_reasonable]
 
-	#Initialize amplitude into feedline
-	P_dBm_feed = P_feed_dBm
-	V_feed = Vrms_to_Vpk(Watts_to_Vrms(dBm_to_Watts(P_dBm_feed)))
+	Dips = 1-(Qs_reas/Qcs_reas)
+	Dips_dB = 20*np.log10(Dips)
 
-	#Set time sampling + length
-	res_BW_max = np.max(brs_reas)
-	f_max = np.max(f0s_reas)
+	return Qs_reas, Qcs_reas, f0s_reas, brs_reas, Dips_dB	
 
-	#Initialize voltage time wave + comb
-	t = np.arange(0,T,1.0/(6*f_max))
-	f = np.fft.fftfreq(len(t),d=t[1]-t[0])
-	
+def Gen_comb(V_feed,t,f,f0s,Qs,Qcs):
+	#Generate incoming voltage wave and pass through comb
+
 	V_wave_in = np.zeros(len(t))
 	trans = np.ones(len(f))
 	
 	#Sum all tones in the time domain + generate comb in the frequency domain
-	for i in range(len(f0s_reas)):
-		V_wave_in = V_wave_in + V_feed*np.cos(2*pi*(f0s_reas[i]*t+np.random.rand()))
-		xplus = (f-f0s_reas[i])/f0s_reas[i]
-		xmin = (f+f0s_reas[i])/-f0s_reas[i]
-		trans = trans - (Qs_reas[i]/Qcs_reas[i])/(1+2*1j*Qs_reas[i]*xplus) - (Qs_reas[i]/Qcs_reas[i])/(1+2*1j*Qs_reas[i]*xmin)
+	for i in range(len(f0s)):
+		V_wave_in = V_wave_in + V_feed*np.cos(2*pi*(f0s[i]*t+np.random.rand()))
+		xplus = (f-f0s[i])/f0s[i]
+		xmin = (f+f0s[i])/-f0s[i]
+		trans = trans - (Qs[i]/Qcs[i])/(1+2*1j*Qs[i]*xplus) - (Qs[i]/Qcs[i])/(1+2*1j*Qs[i]*xmin)
 
 	#Fourier transform the input wave and pass it through the transfer function
 	#Test that a function of known fft returns the fft you expect or if you need to normalize
 	comb_in = np.fft.fft(V_wave_in)
 	comb_out = comb_in*trans
 
-	#Inverse fourier transform and apply the amplifier nonlinearity
+	#Inverse fourier transform
 	V_wave_out = np.fft.ifft(comb_out)
+
+	return V_wave_in, V_wave_out
+
+
+def Gen_V_Wave_From_Assemlby(pickle_file,P_feed_dBm,T):
+	# Use resonator fits to generate a voltage wave and pass through comb 
+
+	Qs_reas, Qcs_reas, f0s_reas = read_assembly_dataframe(pickle_file)[:3]
+
+	#Initialize amplitude into feedline
+	P_dBm_feed = P_feed_dBm
+	V_feed = Vrms_to_Vpk(Watts_to_Vrms(dBm_to_Watts(P_dBm_feed)))
+
+	#Set time sampling + length
+	f_max = np.max(f0s_reas)
+
+	#Initialize voltage time wave + comb
+	t = np.arange(0,T,1.0/(6*f_max))
+	f = np.fft.fftfreq(len(t),d=t[1]-t[0])
+	
+	V_wave_in, V_wave_out=Gen_comb(V_feed,t,f,f0s_reas,Qs_reas, Qcs_reas)
+
 	f_res = f0s_reas
+
 	return f_res, t, f, V_wave_in, V_wave_out
 
 def Gen_IP3_Test_Wave(P_dBm,f1_GHz,f2_GHz,fs,T):
+	# Generate a voltage wave without comb
 	V_feed = Vrms_to_Vpk(Watts_to_Vrms(dBm_to_Watts(P_dBm)))
 	t = np.arange(0,T,1.0/fs)
 	f = np.fft.fftfreq(len(t),d=t[1]-t[0])
@@ -85,8 +118,11 @@ def Gen_IP3_Test_Wave(P_dBm,f1_GHz,f2_GHz,fs,T):
 	V_wave_in = V_feed*np.cos(2*pi*(f1_GHz*1e9*t))+V_feed*np.cos(2*pi*(f2_GHz*1e9*t))
 	V_wave_out = V_wave_in
 	return t, f, V_wave_in, V_wave_out
+
 	
 def Gen_Fake_Comb(P_dBm,f_start,f_stop,N_Tones,separation_scatter,BW,BW_scatter,Depth,Depth_Scatter,T):
+	# Generate fake comb with N tones from f_start to f_stop
+
 	V_feed = Vrms_to_Vpk(Watts_to_Vrms(dBm_to_Watts(P_dBm)))
 	t = np.arange(0,T,1.0/(6*f_stop))
 	f = np.fft.fftfreq(len(t),d=t[1]-t[0])
@@ -98,26 +134,14 @@ def Gen_Fake_Comb(P_dBm,f_start,f_stop,N_Tones,separation_scatter,BW,BW_scatter,
 	Dips_lin = 10**(Dips_dB/20)
 	Qcs = Qrs/(1-Dips_lin)
 	
-	trans = np.ones(len(f))
-	V_wave_in = np.zeros(len(t))
-	for i in range(len(f0s)):
-		V_wave_in = V_wave_in + V_feed*np.cos(2*pi*(f0s[i]*t+np.random.rand()))
-		xplus = (f-f0s[i])/f0s[i]
-		xmin = (f+f0s[i])/-f0s[i]
-		trans = trans - (Qrs[i]/Qcs[i])/(1+2*1j*Qrs[i]*xplus) - (Qrs[i]/Qcs[i])/(1+2*1j*Qrs[i]*xmin)
-		
-	#Fourier transform the input wave and pass it through the transfer function
-	#Test that a function of known fft returns the fft you expect or if you need to normalize
-	comb_in = np.fft.fft(V_wave_in)
-	comb_out = comb_in*trans
+	V_wave_in, V_wave_out=Gen_comb(V_feed,t,f,f0s,Qrs,Qcs)
 
-	#Inverse fourier transform and apply the amplifier nonlinearity
-	V_wave_out = np.fft.ifft(comb_out)
+
 	f_res = f0s
 
 	return Qrs, Qcs, f_res, t, f, V_wave_in, V_wave_out
-	
-def Calc_Non_Linearities(V_wave_in,V_wave_out,t,f,fres,Gain,IIP3,plot_all = False,plot_noise_temp =True,label=None,alpha = None,fig_num=2):
+
+def Calc_Non_Linearities(V_wave_in,V_wave_out,t,f,fres,Gain,IIP3,clipping=True, plot_all = False, plot_noise_temp =True,label=None,alpha = None,fig_num=2):
 	'''
 	Slide 12 here: http://rfic.eecs.berkeley.edu/~niknejad/ee142_fa05lects/pdf/lect9.pdf
 	np.sqrt(.001*10**(IIP3/10)*2*Z_0) = np.sqrt((4/3)*(a1/a3))
@@ -129,24 +153,13 @@ def Calc_Non_Linearities(V_wave_in,V_wave_out,t,f,fres,Gain,IIP3,plot_all = Fals
 	a2 = 0
 	a3 = a1/((3/4)*.001*(10**(IIP3/10))*2*Z_0)
 	#Apply nonlinearity to wave out of comb
-	V_wave_ADC = nonlinear_model(V_wave_out,a1,a2,a3)
+	V_wave_ADC = nonlinear_model(V_wave_out,a1,a2,a3,clipping)
 
-	V_in_FFT = np.fft.fft(V_wave_in)
-	V_in_FFT_norm = 2*np.abs(V_in_FFT)/len(V_wave_in)
-	V_in_PS_dBm = 10*np.log10((V_in_FFT_norm/np.sqrt(2))**2/Z_0/.001)
-	
-	V_out_FFT = np.fft.fft(V_wave_out)
-	V_out_FFT_norm = 2*np.abs(V_out_FFT)/len(V_wave_out)
-	V_out_PS_dBm = 10*np.log10((V_out_FFT_norm/np.sqrt(2))**2/Z_0/.001)
-	
-	V_ADC_FFT = np.fft.fft(V_wave_ADC)
-	V_ADC_FFT_norm = 2*np.abs(V_ADC_FFT)/len(V_wave_ADC)
-	V_ADC_PS_dBm = 10*np.log10((V_ADC_FFT_norm/np.sqrt(2))**2/Z_0/.001)
+	V_in_PS_dBm = FFT_to_dBm(V_wave_in, Z_0)
+	V_out_PS_dBm = FFT_to_dBm(V_wave_out, Z_0)
+	V_ADC_PS_dBm = FFT_to_dBm(V_wave_ADC, Z_0)
 
-	out_dic = {}
-	out_dic['In'] = {}
-	out_dic['Out'] = {}
-	out_dic['ADC'] = {}
+
 	
 	if plot_all == True:
 		plt.figure()
@@ -160,50 +173,12 @@ def Calc_Non_Linearities(V_wave_in,V_wave_out,t,f,fres,Gain,IIP3,plot_all = Fals
 		plt.legend()
 		plt.xlim([4.2e9,6.8e9]) 
 		plt.ylim([-180,-70])
-	if plot_noise_temp == True:
-		NL_HEMT_dBm = V_ADC_PS_dBm-Gain
-		if (len(f)%10) == 0:
-			f_new = f
-		if (len(f)%10) != 0:
-			f_new = f[0:-(len(f)%10)]
-			NL_HEMT_dBm = NL_HEMT_dBm[0:-(len(f)%10)]
-		NL_HEMT_W = 0.001*(10**(NL_HEMT_dBm/10))
-		f_WperHz = np.zeros(int(len(f_new)/10))
-		NL_HEMT_WperHz = np.zeros(int(len(f_new)/10))
-		for i in range(len(f_WperHz)):
-			f_WperHz[i] = np.mean(f_new[10*i:10*i+9])
-			NL_HEMT_WperHz[i] = np.mean(NL_HEMT_W[10*i:10*i+9])/(f_new[10*i+9]-f_new[10*i])
-		NL_HEMT_K = NL_HEMT_WperHz/kb
-		plt.figure(fig_num)
-		if label == None:
-			if alpha == None:
-				plt.semilogy(f_WperHz,NL_HEMT_K)
-			if alpha != None:
-				plt.semilogy(f_WperHz,NL_HEMT_K,alpha = alpha)
-		if label != None:
-			if alpha == None:
-				plt.semilogy(f_WperHz,NL_HEMT_K,label=label)
-			if alpha != None:
-				plt.semilogy(f_WperHz,NL_HEMT_K,label=label,alpha = alpha)
-		'''
-		f_WperHz_ourband = f_WperHz[np.argmin(np.abs((2*np.min(fres)-np.max(fres))-f_WperHz)):np.argmin(np.abs((2*np.max(fres)-np.min(fres))-f_WperHz))]
-		
-		NL_HEMT_K_ourband = NL_HEMT_K[np.argmin(np.abs((2*np.min(fres)-np.max(fres))-f_WperHz)):np.argmin(np.abs((2*np.max(fres)-np.min(fres))-f_WperHz))]
-		
-		NL_HEMT_K_ourband[np.argmin(np.abs(np.min(fres)-f_WperHz_ourband)):np.argmin(np.abs(np.max(fres)-f_WperHz_ourband))] = np.nan
-		
-		out_dic['ADC']['f_WperHz_ourband'] = f_WperHz_ourband
-		out_dic['ADC']['K_ourband'] = NL_HEMT_K_ourband
-		'''
-		plt.xlabel('Frequency [Hz]',fontsize = 24)
-		plt.ylabel('$T_{Noise}$ [K]',fontsize = 24)
-		plt.legend()
-		#plt.xlim([1e9,9e9]) 
-		#plt.ylim([1e-1,1e3])
-		out_dic['ADC']['f_WperHz'] = f_WperHz
-		out_dic['ADC']['WperHz'] = NL_HEMT_WperHz
-		out_dic['ADC']['K'] = NL_HEMT_K
-		
+
+	out_dic = {}
+	out_dic['In'] = {}
+	out_dic['Out'] = {}
+	out_dic['ADC'] = Calc_Noise_Temp(f, V_ADC_PS_dBm, Gain, plot_noise_temp,label,alpha,fig_num)
+
 	out_dic['In']['f'] = f
 	out_dic['In']['t'] = t
 	out_dic['In']['dBm'] = V_in_PS_dBm
@@ -216,5 +191,55 @@ def Calc_Non_Linearities(V_wave_in,V_wave_out,t,f,fres,Gain,IIP3,plot_all = Fals
 	out_dic['ADC']['t'] = t
 	out_dic['ADC']['dBm'] = V_ADC_PS_dBm
 	out_dic['ADC']['Volts'] = V_wave_ADC
+
 	return out_dic
+
+def Calc_Noise_Temp(f, V_ADC_PS_dBm, Gain, plot_noise_temp =True, label=None, alpha = None, fig_num=2):
+	# Calculate and plot noise temperature based on nonlinear voltage wave
+	# Noise temperature is averaged over 10 tones. 
+
+	NL_HEMT_dBm = V_ADC_PS_dBm-Gain
+
+	if (len(f)%10) == 0:
+		f_new = f
+	if (len(f)%10) != 0:
+		f_new = f[0:-(len(f)%10)]
+		NL_HEMT_dBm = NL_HEMT_dBm[0:-(len(f)%10)]
+
+	NL_HEMT_W = 0.001*(10**(NL_HEMT_dBm/10))
+	f_WperHz = np.zeros(int(len(f_new)/10))
+	NL_HEMT_WperHz = np.zeros(int(len(f_new)/10))
+
+	for i in range(len(f_WperHz)):
+		f_WperHz[i] = np.mean(f_new[10*i:10*i+9])
+		NL_HEMT_WperHz[i] = np.mean(NL_HEMT_W[10*i:10*i+9])/(f_new[10*i+9]-f_new[10*i])
+
+	NL_HEMT_K = NL_HEMT_WperHz/kb
+
+	if plot_noise_temp ==True:
+		plt.figure(fig_num)
+		if label == None:
+			if alpha == None:
+				plt.semilogy(f_WperHz,NL_HEMT_K)
+			if alpha != None:
+				plt.semilogy(f_WperHz,NL_HEMT_K,alpha = alpha)
+		if label != None:
+			if alpha == None:
+				plt.semilogy(f_WperHz,NL_HEMT_K,label=label)
+			if alpha != None:
+				plt.semilogy(f_WperHz,NL_HEMT_K,label=label,alpha = alpha)
+
+		plt.xlabel('Frequency [Hz]',fontsize = 24)
+		plt.ylabel('$T_{Noise}$ [K]',fontsize = 24)
+		plt.xlim([2e9,10e9]) 
+		plt.legend()
+
+	out_dic={}
+	out_dic['f_WperHz'] = f_WperHz
+	out_dic['WperHz'] = NL_HEMT_WperHz
+	out_dic['K'] = NL_HEMT_K
+
+	return out_dic
+
 	
+
