@@ -155,7 +155,7 @@ def refer_phase_noise_to_K(dBc,loss,temp,Pin, Qr, Qc, f0,dfdI, p=False):
 	T_out = (10.**((Pin-dBc)/10.)*.001)/k_b
 	T_feed = ref_noise_temp(loss,temp,T_out)
 	P_noise_feed = T_feed*k_b
-	dip = 1.-(Qr/Qc)
+	dip = (1.-(Qr/Qc))**2
 	P_noise_HEMT_input = dip*P_noise_feed
 	K = P_noise_HEMT_input/k_b
 	return K
