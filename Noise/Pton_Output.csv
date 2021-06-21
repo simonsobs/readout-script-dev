@@ -1,0 +1,22 @@
+component,Loss (dB),T1,T2,Coax Y/N,Coax Type,Coax Length
+0.1K Isothermal Coax,0.16,0.1,0.1,N,,
+0.1K SMA Bulkhead,0.06,0.1,0.1,N,,
+0.1-1K Coax,0.00,0.1,1,N,,
+1K SMA Bulkhead,0.06,1,1,N,,
+1-4K Coax,0.00,1,4,N,,
+4K Isolator,0.24,4,4,N,,
+4K Amplifier,-24.89,4,4,N,,
+4K Isothermal Coax,0.05,4,4,N,,
+4K SMA Bulkhead,0.06,4,4,N,,
+4-40K Coax,1.6,4,40,Y,CN2p19,0.335
+40K Amplifier,-12.11,40,40,N,,
+40K Isothermal Coax,0.07,40,40,N,,
+40K SMA Bulkhead,0.06,40,40,N,,
+40-300K Coax,1.25,40,295,Y,CN2p19,0.205
+Hermetic SMA Bulkhead,0.06,295,295,N,,
+300K Attenuator,0.06,295,295,N,,
+300K Isothermal Coax #1,0.83,295,295,N,,
+300K SMA Bulkhead,0.06,295,295,N,,
+300K SMA M2M,0.06,295,295,N,,
+300K Amplifier,-21.34,295,295,N,,
+300K Isothermal Coax #2,2.48,295,295,N,,
