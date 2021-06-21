@@ -1,0 +1,47 @@
+SA Settings:
+-----------------------------------------------------------------------------------------------------
+Average Type: Power
+	-Where to find setting: Meas Setup 4 -> Average Type -> Power
+	-Text in manual:  (Linear) Averaging – Best for measuring true power levels. Used in Detection Average and Noise Marker Average. Mathematically, trace noise is 2.5 dB higher than when using Log Average. PAvg is shown on the left side of the FieldFox screen when selected.
+-----------------------------------------------------------------------------------------------------
+Detection Method: Average
+	-Where to find setting: Trace 6 -> Detector -> Average
+	-Text in manual: Displays the Root Mean Squared (RMS) average power of all the measurements in each bucket. This is the preferred method when making power measurements.
+-----------------------------------------------------------------------------------------------------
+Trace State: Average
+	-Where to find setting: Trace 6 -> State -> Average
+	-Text in manual: Each data point is averaged over multiple sweeps as set by the Average Count setting.
+-----------------------------------------------------------------------------------------------------
+Average Count: 16
+	-Where to find setting: Meas Setup 4 -> Average Count -> 16
+	-Text in manual: The Average Count setting is used mainly with the Average Trace State described above. In this Trace State, the Average Count setting determines the number of sweeps to average. The higher the average count, the greater the amount of noise reduction. 
+tion. -----------------------------------------------------------------------------------------------------RF Atten: 0dB GHz Tones/0dB MHz Clock (but 20dB fixed attenuator added)
+	-Where to find setting: Scale/Amptd -> RF Atten -> XdB
+	-Text in manual: Both the RF Attenuation and Preamp functions control the power level into the
+SA.
+-----------------------------------------------------------------------------------------------------
+# Points: 20001
+	-Where to find setting: Sweep 3 -> Points -> 20001
+-----------------------------------------------------------------------------------------------------
+Ref Level: -15dBm
+	-Where to find setting: Scale/Amptd -> Ref Level -> X dBm
+-----------------------------------------------------------------------------------------------------
+Ref Pos: 0
+	-Where to find setting: Scale/Amptd -> Ref Pos -> 0
+-----------------------------------------------------------------------------------------------------
+RBW: 3Hz for 100kHz span/30Hz for 1MHz span
+	-Where to find setting: BW 2 -> 3/30 Hz
+-----------------------------------------------------------------------------------------------------
+VBW: Auto/equals RBW
+	-Where to find setting: BW 2 -> Video BW -> Auto
+-----------------------------------------------------------------------------------------------------
+Ref Level: 15dB/
+	-Where to find setting: Scale/Amptd -> Scale -> 15 dB/
+
+Saved to internal memory state: SA_Clock_Noise_State.sta (100kHz span, 3Hz BW -> change to 1MHz/30Hz by hand from here).
+
+Clock Noise:
+
+SMuRF Tone Noise:
+
+For both plots the top row is the spectrum with the SA noise floor subtracted (with the SA noise floor shown as a grey trace), the bottom row is the double sided phase noise. The left column is the SA trace with 100kHz span w/ 3Hz RBW & 20001 pts and the right column is a separate SA trace with 1MHz span w/ 30Hz RBW & 20001 pts (phase noise plots account for difference in RBW). In the legend Mod corresponds to adding modulation to the clock source, all off in/out is just no modulation present (and no other tones on, that's true in all cases).
