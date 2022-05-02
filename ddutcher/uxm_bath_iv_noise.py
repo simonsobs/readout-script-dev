@@ -81,7 +81,12 @@ sdl.validate_and_save(
     savename, noisedict, S=S, cfg=cfg, make_path=False
 )
 
-fieldnames = ['bath_temp','bias_voltage', 'bias_line', 'band', 'data_path','type'] 
+fieldnames = ['bath_temp','bias_voltage', 'bias_line', 'band', 'data_path','type']
+if not os.path.isfile(out_fn):
+    with open(out_fn, 'w', newline = '') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
 row = {}
 row['data_path'] = savename
 row['bias_voltage'] = bias_v
@@ -89,6 +94,7 @@ row['type'] = 'noise'
 row['bias_line'] = 'all'
 row['band'] = 'all'
 row['bath_temp'] = bath_temp
+
 with open(out_fn, 'a', newline = '') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
     writer.writerow(row)

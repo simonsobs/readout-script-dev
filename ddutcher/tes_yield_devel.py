@@ -1,6 +1,5 @@
 # tes_yield.py
 '''
-Code written in Oct 2021 by Yuhan Wang.
 Check TES yield by taking bias tickle (from sodetlib) and IV curves.
 Display quality in biasability, 50% RN target V bias, Psat and Rn.
 '''
@@ -33,7 +32,7 @@ def tickle_and_iv(
     out_fn = os.path.join(S.output_dir, tes_yield_data) 
 
     if make_bgmap:
-        bsa = take_bgmap(S, cfg, bgs=target_bg)
+        bsa = take_bgmap(S, cfg, bgs=target_bg, show_plots=False)
 
     fieldnames = ['bath_temp', 'bias_line', 'band', 'data_path','notes']
     with open(out_fn, 'w', newline = '') as csvfile:
@@ -98,54 +97,47 @@ def tes_yield(S, target_bg, out_fn, start_time):
 
     S.pub.register_file(out_fn, "tes_yield", format='.csv')
 
-    common_biases = set()
-    now_bias = set()
-    for bl in all_data_IV.keys():
-        for sb in all_data_IV[bl].keys():
-            if len(all_data_IV[bl][sb].keys()) != 0:
-                first_chan = next(iter(all_data_IV[bl][sb]))
-                now_bias = set(all_data_IV[bl][sb][first_chan]['v_bias'])
-                if len(common_biases) == 0:
-                    common_biases = now_bias
-                else:
-                    common_biases = common_biases.intersection(now_bias)
-    common_biases = np.array(sorted([np.float("%0.3f" % i) for i in common_biases]))
-    common_biases = np.array(common_biases)
-
     operating_r = dict()
+    target_vbias_dict = {}
+    target_rfrac = 0.5
+    all_rn = []
     for bl in target_bg:
+        target_v_bias = []
         operating_r[bl] = dict()
         for sb in all_data_IV[bl].keys():
             if len(all_data_IV[bl][sb].keys()) == 0:
                 continue
-            for v in common_biases:
+            first_chan = next(iter(all_data_IV[bl][sb]))
+            v_biases = all_data_IV[bl][sb][first_chan]['v_bias']
+            for ind, v in enumerate(v_biases):
+                v = np.round(v,3)
                 if v not in operating_r[bl].keys():
                     operating_r[bl][v] = []
-                first_chan = next(iter(all_data_IV[bl][sb]))
-                ind = np.where(
-                    (np.abs(all_data_IV[bl][sb][first_chan]['v_bias'] - v)) < 3e-3
-                )[0][0]
                 for chan, d in all_data_IV[bl][sb].items():
-                    operating_r[bl][v].append(d['R'][ind]/d['R_n']) 
-
-    target_vbias_dict = {}
-    RN = []
-    v_bias_all = []
-    for bl in target_bg:
-        percent_rn = 0.5
-        target_v_bias = []
-
-        for sb in all_data_IV[bl].keys():
+                    operating_r[bl][v].append(d['R'][ind]/d['R_n'])
+            # This finds where R/Rn crosses target_rfrac; the corresponding
+            # vbias value is then added to a list. The median of that list
+            # is then used as the optimal vbias for a bias line.
             for ch, d in all_data_IV[bl][sb].items():
-                rn = d['R']/d['R_n']
-                cross_idx = np.where(np.logical_and(rn - percent_rn >= 0, np.roll(rn - percent_rn, 1) < 0))[0]
+                rfrac = d['R']/d['R_n']
+                cross_idx = np.where(
+                    np.logical_and(
+                        rfrac - target_rfrac >= 0,
+                        np.roll(rfrac - target_rfrac, 1) < 0
+                    )
+                )[0]
                 if len(cross_idx) == 0:
                     continue
-                RN.append(d['R_n'])
-                target_v_bias.append(d['v_bias'][cross_idx][0]) 
-                v_bias_all.append(d['v_bias'][cross_idx][0])
+                all_rn.append(d['R_n'])
+                v_bias = round(d['v_bias'][cross_idx][-1], 3)
+                target_v_bias.append(v_bias)
+
         med_target_v_bias = np.nanmedian(np.array(target_v_bias))
-        target_vbias_dict[bl] = round(med_target_v_bias,1)
+        if med_target_v_bias not in operating_r[bl].keys():
+            med_target_v_bias = v_biases[
+                np.argmin(np.abs(v_biases-med_target_v_bias))
+            ]
+        target_vbias_dict[bl] = med_target_v_bias
 
     target_vbias_fp = os.path.join(S.output_dir, f"{start_time}_target_vbias.npy")
     np.save(target_vbias_fp, target_vbias_dict, allow_pickle=True)
@@ -154,29 +146,40 @@ def tes_yield(S, target_bg, out_fn, start_time):
     fig, axs = plt.subplots(6, 4,figsize=(25,30), gridspec_kw={'width_ratios': [2, 1,2,1]})
     tes_total = 0
     for ind, bl in enumerate(target_bg):
+        ax_rv = axs[bl//2, bl%2*2]
         if np.isnan(target_vbias_dict[bl]):
             continue
         count_num = 0
         for sb in all_data_IV[bl].keys():
             for ch,d in all_data_IV[bl][sb].items():
-                axs[bl//2,bl%2*2].plot(d['v_bias'], d['R'], alpha=0.6)
+                ax_rv.plot(d['v_bias'], d['R'], alpha=0.6)
                 count_num += 1
         tes_total += count_num
 
-        axs[bl//2,bl%2*2].set_xlabel('V_bias [V]')
-        axs[bl//2,bl%2*2].set_ylabel('R [Ohm]')
-        axs[bl//2,bl%2*2].grid()
-        axs[bl//2,bl%2*2].axhspan(2.6e-3, 5.8e-3, facecolor='gray', alpha=0.2)
-        axs[bl//2,bl%2*2].axvline(target_vbias_dict[bl], linestyle='--', color='gray')
-        axs[bl//2,bl%2*2].set_title('bl {}, yield {}'.format(bl,count_num))
-        axs[bl//2,bl%2*2].set_ylim([-0.001,0.012])
+        ax_rv.set_xlabel('V_bias [V]')
+        ax_rv.set_ylabel('R [Ohm]')
+        ax_rv.grid()
+        ax_rv.axhspan(0.2*np.nanmedian(all_rn), 0.9*np.nanmedian(all_rn),
+                      facecolor='gray', alpha=0.2)
+        ax_rv.axvline(target_vbias_dict[bl], linestyle='--', color='gray')
+        ax_rv.set_title('bl {}, yield {}'.format(bl,count_num))
+        ax_rv.set_ylim([-0.001,0.012])
+        ax_rv.set_xlim(-.75, 7.5)
 
-        h = axs[bl//2,bl%2*2+1].hist(operating_r[bl][target_vbias_dict[bl]], range=(0,1), bins=40)
-        axs[bl//2,bl%2*2+1].axvline(np.median(operating_r[bl][target_vbias_dict[bl]]),linestyle='--', color='gray')
-        axs[bl//2,bl%2*2+1].set_xlabel("percentage Rn")
-        axs[bl//2,bl%2*2+1].set_ylabel("{} TESs total".format(count_num))
-        axs[bl//2,bl%2*2+1].set_title("optimal Vbias {}V for median {}Rn".format(
-            target_vbias_dict[bl],np.round(np.median(operating_r[bl][target_vbias_dict[bl]]),2))
+        ax_vb = axs[bl//2,bl%2*2+1]
+        h = ax_vb.hist(
+            operating_r[bl][target_vbias_dict[bl]], range=(0,1), bins=40
+        )
+        ax_vb.axvline(
+            np.median(operating_r[bl][target_vbias_dict[bl]]),
+            linestyle='--',
+            color='gray',
+        )
+        ax_vb.set_xlabel("percentage Rn")
+        ax_vb.set_ylabel("{} TESs total".format(count_num))
+        ax_vb.set_title("optimal Vbias {}V for median {}Rn".format(
+            target_vbias_dict[bl],
+            round(np.median(operating_r[bl][target_vbias_dict[bl]]), 3))
         )
 
     plt.suptitle(f"TES total yield: {tes_total}")
@@ -188,35 +191,45 @@ def tes_yield(S, target_bg, out_fn, start_time):
 
     fig, axs = plt.subplots(6, 4, figsize=(25,30))
     tes_total = 0
+    target_rfrac = 0.9
     for bl in target_bg:
         count_num = 0
         Rn = []
         psat = []
         for sb in all_data_IV[bl].keys():
             for ch, d in all_data_IV[bl][sb].items():
-                # lazy try/except until I actually figure this out
-                try:
-                    now_psat = d['p_sat'].item()
-                except AttributeError:
-                    now_psat = d['p_sat']
+                rfrac = d['R']/d['R_n']
+                cross_idx = np.where(
+                    np.logical_and(
+                        rfrac - target_rfrac >= 0,
+                        np.roll(rfrac - target_rfrac, 1) < 0
+                    )
+                )[0]
+                if len(cross_idx) == 0:
+                    continue
+                now_psat = d['p_tes'][cross_idx][-1]
                 Rn.append(d['R_n'])
                 psat.append(now_psat)
                 count_num += 1
         tes_total += count_num
 
-        axs[bl//2,bl%2*2].set_xlabel('P_sat (pW)')
-        axs[bl//2,bl%2*2].set_ylabel('count')
-        axs[bl//2,bl%2*2].grid()
-        axs[bl//2,bl%2*2].hist(psat, range=(0,15), bins=50,histtype= u'step',linewidth=2,color = 'r')
-        axs[bl//2,bl%2*2].axvline(np.median(psat), linestyle='--', color='gray')
-        axs[bl//2,bl%2*2].set_title('bl {}, yield {} median Psat {:.2f} pW'.format(
+        ax_psat = axs[bl//2,bl%2*2]
+        ax_psat.set_xlabel('P_sat (pW)')
+        ax_psat.set_ylabel('count')
+        ax_psat.grid()
+        ax_psat.hist(psat, range=(0,15), bins=50,histtype= u'step',linewidth=2,color = 'r')
+        ax_psat.axvline(np.median(psat), linestyle='--', color='gray')
+        ax_psat.set_title('bl {}, yield {} median Psat {:.2f} pW'.format(
             bl,count_num,np.median(psat))
         )
-        h = axs[bl//2,bl%2*2+1].hist(Rn, range=(0.005,0.01), bins=50, histtype= u'step',linewidth=2,color = 'k')
-        axs[bl//2,bl%2*2+1].axvline(np.median(Rn),linestyle='--', color='gray')
-        axs[bl//2,bl%2*2+1].set_xlabel("Rn (Ohm)")
-        axs[bl//2,bl%2*2+1].set_ylabel('count')
-        axs[bl//2,bl%2*2+1].set_title('bl {}, median Rn {:.4f} Ohm'.format(bl,np.median(Rn)))
+        
+        ax_rn = axs[bl//2,bl%2*2+1]
+        
+        h = ax_rn.hist(Rn, range=(0.005,0.01), bins=50, histtype= u'step',linewidth=2,color = 'k')
+        ax_rn.axvline(np.median(Rn),linestyle='--', color='gray')
+        ax_rn.set_xlabel("Rn (Ohm)")
+        ax_rn.set_ylabel('count')
+        ax_rn.set_title('bl {}, median Rn {:.4f} Ohm'.format(bl,np.median(Rn)))
 
     plt.suptitle(f"TES total yield: {tes_total}")
     save_name = os.path.join(S.plot_dir, f'{start_time}_IV_psat.png')
