@@ -6,7 +6,7 @@ detectors and readout. Many of the scripts here were originally in the
 
 ## Adding Readout Script Dev to Smurf-related dockers
 
-For testing, it will be useful to have access to these scripts in the docker
+For testing, it may be useful to have access to these scripts in the docker
 containers on the smurf-server that are used for readout testing. In order
 to add this, 
 
@@ -17,8 +17,8 @@ else if your smurf-server was set up much earlier.
 Second, you'll need to mount the `readout-script-dev` directory into any docker
 containers that you may want to use it from. To do this, you'll need to edit
 the `docker-compose` file in the `$OCS_CONFIG_DIR`. We are already mounting
-in the sodetlib repo, so a relatively safe way to figure out where to mount
-this script is to add the `readout-script-dev` mount below any existing
+in the sodetlib repository, so a relatively safe way to figure out where to mount
+this repo is to add the `readout-script-dev` mount below any existing
 `sodetlib` mount. For instance, the `x-smurf-service` block may look something
 like this:
 ```
@@ -41,4 +41,4 @@ x-smurf-service: &smurf-service
 
 Finally, you'll want to modify local scripts that you use that reference the
 directory `/sodetlib/scratch` to instead reference the directory
-`/readout-script-dev`
+`/readout-script-dev`.
