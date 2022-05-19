@@ -8,12 +8,13 @@ import os, sys
 import numpy as np
 import scipy.signal as signal
 import sodetlib.smurf_funcs.optimize_params as op
+import sodetlib.util as su
 from uc_tuner import UCTuner
 import logging
 import matplotlib
 matplotlib.use('Agg')
 
-sys.path.append("/sodetlib/scratch/ddutcher")
+sys.path.append("/readout-script-dev/ddutcher")
 from optimize_fracpp import optimize_fracpp
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ def uxm_optimize(
         S.set_att_uc(opt_band, cfg.dev.bands[opt_band]["uc_att"])
         logger.info(f"band {opt_band} uc_att {S.get_att_uc(opt_band)}")
 
-        S.amplitude_scale[opt_band] = cfg.dev.bands[opt_band]["drive"]
+        S.amplitude_scale[opt_band] = cfg.dev.bands[opt_band]["tone_power"]
         logger.info(f"band {opt_band} tone power {S.amplitude_scale[opt_band]}")
         logger.info(f"estimating phase delay")
         try:
@@ -86,20 +87,32 @@ def uxm_optimize(
         # hard coding it for the current fw
         S.set_synthesis_scale(opt_band, 1)
         logger.info(f"running find freq")
+        if opt_band in [0,4]:
+            start_freq = -230
+        else:
+            start_freq = -250
         S.find_freq(
-            opt_band, tone_power=cfg.dev.bands[opt_band]["drive"], make_plot=True
+            opt_band, start_freq=start_freq, tone_power=cfg.dev.bands[opt_band]["tone_power"], make_plot=True
         )
         logger.info(f"running setup notches")
         S.setup_notches(
             opt_band,
-            tone_power=cfg.dev.bands[opt_band]["drive"],
+            tone_power=cfg.dev.bands[opt_band]["tone_power"],
             new_master_assignment=True,
         )
         logger.info(f"running serial gradient descent and eta scan")
         S.run_serial_gradient_descent(opt_band)
         S.run_serial_eta_scan(opt_band)
         logger.info(f"running tracking setup")
-        optimize_fracpp(S, cfg, bands=opt_band, update_cfg=True)
+        n_phi0 = cfg.dev.exp.get("nphi0", 5)
+        optimize_fracpp(S, cfg, bands=opt_band, n_phi0=n_phi0, update_cfg=True)
+        # tk = su.get_tracking_kwargs(
+        #     S, cfg, opt_band, kwargs={'meas_lms_freq':False}
+        # )
+        # tk['make_plot'] = True
+        # tk['channel'] = S.which_on(opt_band)[::10]
+        # ret = S.tracking_setup(opt_band, **tk)
+
         logger.info(f"checking tracking")
         S.check_lock(
             opt_band,
@@ -194,13 +207,13 @@ def uxm_optimize(
             
         logger.info(uctuner.status)
         logger.info(f"Best noise {uctuner.best_wl:.1f} pA/rtHz achieved at"
-                    + f" uc att {uctuner.best_att} drive {uctuner.best_tone}."
+                    + f" uc att {uctuner.best_att} tone power {uctuner.best_tone}."
         )
         logger.info(f"plotting directory is:\n{S.plot_dir}")
 
         cfg.dev.update_band(
             opt_band,
-            {"uc_att": uctuner.best_att, "drive": uctuner.best_tone},
+            {"uc_att": uctuner.best_att, "tone_power": uctuner.best_tone},
             update_file=True,
         )
 

@@ -10,7 +10,7 @@ def uxm_relock(S, cfg, bands=None, setup_notches=False, estimate_phase_delay=Fal
     S.all_off()
     S.set_rtm_arb_waveform_enable(0)
     S.set_filter_disable(0)
-    S.set_downsample_factor(20)
+    S.set_downsample_factor(cfg.dev.exp.get("downsample_factor", 20))
     S.set_mode_dc()
 
     if bands is None:
@@ -25,7 +25,7 @@ def uxm_relock(S, cfg, bands=None, setup_notches=False, estimate_phase_delay=Fal
         S.set_att_uc(band, cfg.dev.bands[band]['uc_att'])
         print('band {} uc_att {}'.format(band,S.get_att_uc(band)))
 
-        S.amplitude_scale[band] = cfg.dev.bands[band]['drive']
+        S.amplitude_scale[band] = cfg.dev.bands[band]['tone_power']
         print('band {} tone power {}'.format(band, S.amplitude_scale[band] ))
 
         if estimate_phase_delay:
@@ -43,14 +43,14 @@ def uxm_relock(S, cfg, bands=None, setup_notches=False, estimate_phase_delay=Fal
 
         print('setting synthesis scale')
         # hard coding it for the current fw
-        S.set_synthesis_scale(band,1)
+        S.set_synthesis_scale(band, cfg.dev.exp.get("synthesis_scale", 1))
 
         if not setup_notches:
             print('running relock')
-            S.relock(band, tone_power=cfg.dev.bands[band]['drive'])
+            S.relock(band, tone_power=cfg.dev.bands[band]['tone_power'])
         else:
             S.load_master_assignment(band, S.freq_resp[band]['channel_assignment'])
-            S.setup_notches(band, tone_power=cfg.dev.bands[band]['drive'],
+            S.setup_notches(band, tone_power=cfg.dev.bands[band]['tone_power'],
                            new_master_assignment=False)
 
         for _ in range(3):
@@ -68,6 +68,7 @@ def uxm_relock(S, cfg, bands=None, setup_notches=False, estimate_phase_delay=Fal
             meas_lms_freq=cfg.dev.bands[band]["meas_lms_freq"],
             feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],
             feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],
+            feedback_gain=cfg.dev.bands[band]["feedback_gain"],
             lms_gain=cfg.dev.bands[band]['lms_gain']
         )
 
@@ -85,16 +86,20 @@ if __name__ == "__main__":
                         help="If set, re-runs setup notches. Otherwise relock.")
     parser.add_argument('--estimate-phase-delay', default=False, action='store_true',
                         help="If set, estimate phase delay. Otherwise don't.")
+    parser.add_argument("--acq-time", type=float, default=30.0,
+                        help="float, optional, default is 30.0. The amount of time to "
+                        + "sleep in seconds while streaming SMuRF data for analysis.",
+    )
 
     cfg = DetConfig()
     args = cfg.parse_args(parser)
 
     S = cfg.get_smurf_control()
 
-    # power amplifiers
-    success = op.cryo_amp_check(S, cfg)
-    if not success:
-        raise OSError("Health check failed")
+    # # power amplifiers
+    # success = op.cryo_amp_check(S, cfg)
+    # if not success:
+    #     raise OSError("Health check failed")
 
     uxm_relock(
         S,
@@ -105,9 +110,8 @@ if __name__ == "__main__":
     )
     S.load_tune(cfg.dev.exp['tunefile'])
 
-    acq_time = 30
-    nsamps = S.get_sample_frequency() * acq_time
+    nsamps = S.get_sample_frequency() * args.acq_time
     nperseg = 2 ** round(np.log2(nsamps / 5))
     noise.take_noise(
-        S, cfg, acq_time=acq_time, show_plot=False, save_plot=True, nperseg=nperseg
+        S, cfg, acq_time=args.acq_time, show_plot=False, save_plot=True, nperseg=nperseg
     )

@@ -1,8 +1,4 @@
 # uxm_setup.py
-#
-# Use:
-# python3 uxm_setup.py -h
-# to see the available options and required formatting.
 
 import os
 import numpy as np
@@ -16,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def uxm_setup(S, cfg, bands=None):
+def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
     """
     Use values in cfg to setup UXM for use.
     """
@@ -27,7 +23,7 @@ def uxm_setup(S, cfg, bands=None):
     S.all_off()
     S.set_rtm_arb_waveform_enable(0)
     S.set_filter_disable(0)
-    S.set_downsample_factor(20)
+    S.set_downsample_factor(cfg.dev.exp.get("downsample_factor", 20))
     S.set_mode_dc()
 
     for band in bands:
@@ -39,24 +35,28 @@ def uxm_setup(S, cfg, bands=None):
         S.set_att_uc(band, cfg.dev.bands[band]["uc_att"])
         logger.info("band {} uc_att {}".format(band, S.get_att_uc(band)))
 
-        S.amplitude_scale[band] = cfg.dev.bands[band]["drive"]
+        S.amplitude_scale[band] = cfg.dev.bands[band]["tone_power"]
         logger.info(
             "band {} tone power {}".format(band, S.amplitude_scale[band])
         )
 
-        logger.info("estimating phase delay")
-        try:
-            S.estimate_phase_delay(band)
-        except Exception:
-            logger.warning('Estimate phase delay failed due to PV timeout.')
+        if estimate_phase_delay:
+            logger.info("estimating phase delay")
+            try:
+                S.estimate_phase_delay(band)
+            except Exception:
+                logger.warning('Estimate phase delay failed due to PV timeout.')
         logger.info("setting synthesis scale")
-        # hard coding it for the current fw
-        S.set_synthesis_scale(band, 1)
+        S.set_synthesis_scale(band, cfg.dev.exp.get("synthesis_scale", 1))
         logger.info("running find freq")
-        S.find_freq(band, tone_power=cfg.dev.bands[band]["drive"], make_plot=True)
+        if band in [0,4]:
+            start_freq = -230
+        else:
+            start_freq = -250
+        S.find_freq(band, start_freq=start_freq, tone_power=cfg.dev.bands[band]["tone_power"], make_plot=True)
         logger.info("running setup notches")
         S.setup_notches(
-            band, tone_power=cfg.dev.bands[band]["drive"], new_master_assignment=True
+            band, tone_power=cfg.dev.bands[band]["tone_power"], new_master_assignment=True
         )
         logger.info("running serial gradient descent and eta scan")
         S.run_serial_gradient_descent(band)
@@ -74,6 +74,16 @@ def uxm_setup(S, cfg, bands=None):
             nsamp=2 ** 18,
             lms_freq_hz=cfg.dev.bands[band]["lms_freq_hz"],
             meas_lms_freq=cfg.dev.bands[band]["meas_lms_freq"],
+            feedback_start_frac=cfg.dev.bands[band]["feedback_start_frac"],
+            feedback_end_frac=cfg.dev.bands[band]["feedback_end_frac"],
+            feedback_gain=cfg.dev.bands[band]["feedback_gain"],
+            lms_gain=cfg.dev.bands[band]["lms_gain"],
+        )
+        S.check_lock(
+            band,
+            reset_rate_khz=cfg.dev.bands[band]["flux_ramp_rate_khz"],
+            fraction_full_scale=cfg.dev.bands[band]["frac_pp"],
+            lms_freq_hz=cfg.dev.bands[band]["lms_freq_hz"],
             feedback_start_frac=cfg.dev.bands[band]["feedback_start_frac"],
             feedback_end_frac=cfg.dev.bands[band]["feedback_end_frac"],
             lms_gain=cfg.dev.bands[band]["lms_gain"],
@@ -102,6 +112,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--estimate-phase-delay",
+        type=bool,
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
         "--acq-time",
         type=float,
         default=30.0,
@@ -127,12 +143,12 @@ if __name__ == "__main__":
     
     S = cfg.get_smurf_control(dump_configs=True, make_logfile=(numeric_level != 10))
 
-    # power amplifiers
-    success = op.cryo_amp_check(S, cfg)
-    if not success:
-        raise OSError("Health check failed.")
+    # # power amplifiers
+    # success = op.cryo_amp_check(S, cfg)
+    # if not success:
+    #     raise OSError("Health check failed.")
     # run the defs in this file
-    uxm_setup(S=S, cfg=cfg, bands=args.bands)
+    uxm_setup(S=S, cfg=cfg, bands=args.bands, estimate_phase_delay=args.estimate_phase_delay)
     # take noise and plot histograms
     nsamps = S.get_sample_frequency() * args.acq_time
     nperseg = 2 ** round(np.log2(nsamps/5))

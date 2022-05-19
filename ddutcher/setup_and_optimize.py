@@ -13,7 +13,7 @@ import sodetlib.smurf_funcs.optimize_params as op
 from sodetlib import noise
 import logging
 
-sys.path.append('/sodetlib/scratch/ddutcher')
+sys.path.append('/readout-script-dev/ddutcher')
 from uxm_setup import uxm_setup
 from uxm_optimize_quick import uxm_optimize
 
@@ -82,9 +82,9 @@ else:
     raise ValueError("Assembly must be either 'ufm' or 'umm'.")
 
 # power amplifiers
-success = op.cryo_amp_check(S, cfg)
-if not success:
-    raise OSError("Health check failed")
+#success = op.cryo_amp_check(S, cfg)
+#if not success:
+#    raise OSError("Health check failed")
 
 
 # run the defs in this file
@@ -97,7 +97,7 @@ uxm_optimize(
     high_noise_thresh=high_noise_thresh,
 )
 
-uxm_setup(S=S, cfg=cfg, bands=args.bands)
+uxm_setup(S=S, cfg=cfg, bands=args.bands, estimate_phase_delay=False)
 
 # take noise and make  plots
 nsamps = S.get_sample_frequency() * args.acq_time
