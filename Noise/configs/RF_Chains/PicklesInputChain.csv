@@ -1,0 +1,26 @@
+component,Loss (dB),T1,T2,Coax Y/N,Coax Type,Coax Length
+10 Ft MCL CBL,2.59,290,290,Y,MCL_CBL,3.048
+300 K SMA bulkhead,0.04,290,290,N,,
+300 K Attenuator,6,290,290,N,,
+4 Ft MCL FLC,1.156,290,290,Y,MCL_FLC,1.2192
+300K DC Block,0.395,290,290,N,,
+300K Connector Saver,0.04,290,290,N,,
+300 K hermetic SMA bulkhead,0.08,290,290,N,,
+CuNi 0.86mm,1.31,290,25,Y,SCNCN0p86,0.275
+40K SMA bulkhead,0.08,45,45,N,,
+40K Attenuator,10,45,45,N,,
+CuNi 0.86 mm,1.13,45,3,Y,SCNCN0p86,0.355
+4K SMA bulkhead,0.08,3,3,N,,
+4K attenuator,10,3,3,N,,
+CuNi 0.86mm,0.9,3,0.9,Y,SCNCN0p86,0.31
+1K SMA bulkhead,0.08,0.9,0.9,N,,
+1K attenuator,6,0.9,0.9,N,,
+CuNi 0.86mm,0.469,0.9,0.13,Y,SCNCN0p86,0.16
+CP SMA bulkhead,0.09,0.13,0.13,N,,
+CP attenuator,0.04,0.13,0.13,N,,
+CuNi 0.86mm,3.25,0.13,0.1,Y,SCNCN0p86,0.23
+MC SMA bulkhead,0.08,0.1,0.1,N,,
+MC attenuator,0.04,0.1,0.1,N,,
+MiniCircuits 141U-6SM+,0.14,0.1,0.1,Y,CU3p58,0.1524
+SPB Dummy,0.08,0.1,0.1,N,,
+MiniCircuits 141U-6SM+,0.14,0.1,0.1,Y,CU3p58,0.1524
