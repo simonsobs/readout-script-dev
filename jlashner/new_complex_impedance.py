@@ -1,36 +1,55 @@
 import numpy as np
 from tqdm.auto import tqdm, trange
-import os
 import time
 import numpy as np
 import sodetlib as sdl
 from scipy.signal import welch, hilbert
-from scipy.optimize import curve_fit, minimize
+from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 from sotodlib.tod_ops.filters import gaussian_filter, fourier_filter 
 from sotodlib.core import IndexAxis, AxisManager, OffsetAxis, LabelAxis
-from sodetlib.operations.bias_steps import BiasStepAnalysis
 
-from astropy.nddata import NDData, NDDataRef, nduncertainty
 
-from pysmurf.client.base.smurf_control import SmurfControl
+NBGS = 12
 
+################################################################################
+# AxisManager Utility Functions
+################################################################################
 
 class RestrictionException(Exception):
     """Exception for when cannot restrict AxisManger properly"""
 
 def restrict_to_times(am, t0, t1, in_place=False):
+    """
+    Restricts axis manager to a time range (t0, t1)
+    """
     m = (t0 < am.timestamps) & (am.timestamps < t1)
     if not m.any():
         raise RestrictionException
-         
     i0, i1 = np.where(m)[0][[0, -1]] + am.samps.offset
     return am.restrict('samps', (i0, i1), in_place=in_place)
 
 def dict_to_am(d, skip_bad_types=False):
+    """
+    Attempts to convert a dictionary into an axis manager. This can be used on
+    dicts containing basic types such as (str, int, float) along with numpy
+    arrays. The AxisManager will not have any structure such as "axes", but
+    this is useful if you want to nest semi-arbitrary data such as the "meta"
+    dict into an axis manager.
+
+    Args
+    -----
+    d : dict
+        Dict to convert ot axismanager
+    skip_bad_types : bool
+        If True, will skip any value that is not a str, int, float, or
+        np.ndarray. If False, this will raise an error for invalid types.
+    """
     allowed_types = (str, int, float, np.ndarray)
     am = AxisManager()
     for k, v in d.items():
+        if isinstance(v, dict):
+            am.wrap(k, dict_to_am(v))
         if isinstance(v, allowed_types):
             am.wrap(k, v)
         elif not skip_bad_types:
@@ -39,41 +58,122 @@ def dict_to_am(d, skip_bad_types=False):
                  "axismanager")
     return am
 
-NBGS = 12
-def sw_to_dset(sw):
-    ndets = len(sw.channels)
-    nfreqs = len(sw.freqs)
+def remap_dets(src, dst, load_axes=False, idxmap=None):
+    """
+    This function takes in two axis-managers, and returns a copy of the 2nd
+    which is identical except all fields aligned with 'dets' are remapped so they
+    match up with the 'dets' field of the first array. This is very useful if you
+    want to compare data across tunes, or across cryostats. An additional field
+    "unmapped" of shape ``(dets, )`` will be added containing mask for which
+    channels were unmapped by the idxmap.
+
+    Args
+    ----
+    src : AxisManager
+        "source" data. A copy of this data will be returned, with the 'dets'
+        axis remapped to match those of the dest AxisManager
+    dst : AxisManager
+        "destination" data. The 'dets' axis will be taken from this AxisManager.
+    load_axes : bool
+        If True, will add ``src`` axes into the copy, and copy the axis
+        assignments. Note that if you are trying to nest this in another
+        axismanager, this may cause trouble if 'src', and 'dst' have 
+        axes with the same name but different values. If this is false,
+        only the 'dets' assignment will be used, allowing for safe nesting.
+    idxmap : optional, np.ndarry
+        If an idxmap is passed, that will be used to remap the dets axis.
+        If none is passed, an idxmap will be created to match up bands and
+        channels of the src and dst. This might be useful if you want to
+        map across cooldowns based on a detmap.
+    """
+    if idxmap is None:
+        idxmap = sdl.map_band_chans(
+            dst.bands, dst.channels,
+            src.bands, src.channels,
+        )
+
+    axes = [dst.dets]
+    if load_axes:
+        axes.extend([v for k, v in src._axes.items() if k != 'dets'])
+
+    am_new = AxisManager(*axes)
+    for k, axes in src._assignments:
+        f = src._fields[k]
+        if isinstance(f, AxisManager):
+            am_new.wrap(k, remap_dets(dst, f, load_axes=load_axes))
+        elif isinstance(f, np.ndarray):
+            assignments = []
+            if load_axes:
+                assignments.extend([
+                    (i, n) for i, n in enumerate(axes) 
+                    if n is not None and n!='dets'
+                ])
+            if 'dets' in axes:
+                i = axes.index('dets')
+                f = np.rollaxis(np.rollaxis(f, i)[idxmap], -i)
+            am_new.wrap(k, f, assignments)
+        else:  # Literals
+            am_new.wrap(k, f, assignments)
+
+    am_new.wrap('unmapped', idxmap == -1, [(0, 'dets')])
+    return am_new
+
+def new_ci_dset(S, cfg, bands, chans, freqs, run_kwargs=None, ob_path=None,
+                sc_path=None):
+    """
+    Creates a new CIData AxisManager. If ob_path and sc_path are set, they
+    will be loaded with a remapped "dets" axis.
+    """
+    ndets = len(chans)
+    nsteps = len(freqs)
+
     ds = AxisManager(
-        LabelAxis('dets', vals=[f"{x:0>4}" for x in range(ndets)]),
+        LabelAxis('dets', vals=[f"r{x:0>4}" for x in range(ndets)]),
+        IndexAxis('steps', count=nsteps),
         IndexAxis('biaslines', count=NBGS),
-        IndexAxis('steps', count=nfreqs)
     )
+    ds.wrap('meta', dict_to_am(sdl.gt_metadata(S, cfg)))
+    if run_kwargs is not None:
+        ds.wrap('run_kwargs', dict_to_am(run_kwargs))
 
-    ds.wrap('meta', dict_to_am(sw.meta))
-    ds.wrap('run_kwargs', dict_to_am(sw.run_kwargs))
-    ds.wrap('freqs', sw.freqs, [(0, 'steps')])
-    ds.wrap('bgs', sw.bgs)
-    ds.wrap_new('start_times', ('biaslines', 'steps'), 
-                cls=np.full, fill_value=np.nan)
-    ds.wrap_new('stop_times', ('biaslines', 'steps'), 
-                cls=np.full, fill_value=np.nan)
-    ds.wrap_new('sid', ('biaslines',), cls=np.zeros, dtype=int)
+    ds.wrap('bands', bands, [(0, 'dets')])
+    ds.wrap('channels', chans, [(0, 'dets')])
+    ds.wrap('freqs', freqs, [(0, 'steps')])
 
-    for i, bg in enumerate(sw.bgs):
-        ds.start_times[bg] = sw.start_times[i]
-        ds.stop_times[bg] = sw.stop_times[i]
-        ds.sid[bg] = sw.sid[i]
+    ds.wrap_new('start_times', ('biaslines', 'freqs'))
+    ds.wrap_new('stop_times', ('biaslines', 'freqs'))
+    ds.wrap_new('sids', ('biaslines', 'freqs'))
 
-    ds.wrap('bands', sw.bands, [(0, 'dets')])
-    ds.wrap('channels', sw.channels, [(0, 'dets')])
-    ds.wrap('bgmap', sw.bgmap, [(0, 'dets')])
-    ds.wrap('polarity', sw.polarity, [(0, 'dets')])
-    ds.wrap('state', sw.state)
-    ds.wrap('ob_path', sw.ob_path)
-    ds.wrap('sc_path', sw.sc_path)
+    # Load bgmap stuff
+    bgmap, polarity = sdl.load_bgmap(
+        bands, chans, cfg.dev.exp['bgmap_file']
+    )
+    ds.wrap('bgmap', bgmap, [(0, 'dets')])
+    ds.wrap('polarity', polarity, [(0, 'dets')])
+
+    if ob_path is not None:
+        ob = remap_dets(AxisManager.load(ob_path), ds, load_axes=False)
+        ds.wrap('ob', ob)
+
+    if sc_path is not None:
+        sc = remap_dets(AxisManager.load(sc_path), ds, load_axes=False)
+        ds.wrap('sc', sc)
+
     return ds
 
 def load_tod(ds, bg, arc=None):
+    """
+    Loads a TOD for a biasgroup given a CI dset.
+
+    Args
+    -----
+    ds : AxisManager
+        CI Dataset
+    bg : int
+        Bias group to load data for
+    arc : G3tSmurf, optional
+        If a G3tSmurf archive is passed this will be used to load data.
+    """
     if arc is not None:
         start = ds.start_times[bg, 0]
         stop = ds.stop_times[bg, -1]
@@ -82,174 +182,6 @@ def load_tod(ds, bg, arc=None):
         sid = ds.sid[bg]
         seg = sdl.load_session(ds.meta.stream_id, sid)
     return seg
-
-
-def add_bias_steps(ds, bsa):
-    if isinstance(bsa, str):
-        bsa = BiasStepAnalysis.load(str)
-
-
-class CISweep:
-    """
-    Complex impedance overview class.
-
-    Attributes
-    -----------
-    Ibias : np.ndarry
-        Phasors created from the commanded bias data for each bias-group.  The
-        amplitude is the amplitude of the sine-wave on the bias line (in pA),
-        and the phase is the phase relative to the start time of the
-        freq-segment after restricting the axis-manager to nperiods.
-    Ites : np.ndarray
-        Phasor of the TES current, with the amp being the amplitude of the
-        sine wave of the TES current (pA), and phase being the phase of the
-        sine wave relative commanded bias-signal. (relative to the Ibias phase)
-    Ztes : np.ndarray
-        Array of z-tes
-    """
-    def __init__(self, *args, **kwargs):
-        self.bg_loaded = None
-        self.am = None
-
-        if len(args) > 0:
-            self.initialize(*args, **kwargs)
-
-    def initialize(self, S, cfg, run_kwargs, sid, start_times, stop_times,
-                   bands, channels, state):
-        self._S = S
-        self._cfg = cfg
-        self.meta = sdl.get_metadata(S, cfg)
-        self.run_kwargs = run_kwargs
-        self.freqs = run_kwargs['freqs']
-        self.bgs = run_kwargs['bgs']
-        self.tickle_voltage = run_kwargs['tickle_voltage']
-        self.start_times = start_times
-        self.stop_times = stop_times
-        self.sid = sid
-        self.bias_array = S.get_tes_bias_bipolar_array()
-        self.bands = bands
-        self.channels = channels
-        self.nchans = len(channels)
-        self.nfreqs = len(self.freqs)
-        self.nbgs = len(self.bias_array)
-
-        # Load bgmap data
-        self.bgmap, self.polarity = sdl.load_bgmap(self.bands, self.channels,
-                                                   self.meta['bgmap_file'])
-
-        self.ob_path = cfg.dev.exp.get('complex_impedance_ob_path')
-        self.sc_path = cfg.dev.exp.get('complex_impedance_sc_path')
-        self.state = state
-
-    def load_am(self, bg, arc=None):
-        if self.bg_loaded == bg:
-            return self.am
-
-        bgi = np.where(self.bgs == bg)[0][0]
-        if arc is not None:
-            start = self.start_times[bgi, 0]
-            stop = self.stop_times[bgi, -1]
-            self.am = arc.load_data(start, stop, show_pb=False)
-        else:
-            sid = self.sid[bgi]
-            self.am = sdl.load_session(self.meta['stream_id'], sid)
-
-        self.bg_loaded = bg
-        return self.am
-
-    @classmethod 
-    def load(cls, path): 
-        """ 
-        Loads a CISweep object from file
-        """
-        self = cls()
-        for k, v in np.load(path, allow_pickle=True).item().items():
-            setattr(self, k, v)
-
-        self.filepath = path
-
-        # Re-initializes some important things that may not be saved in the
-        # output file
-
-        # bg-indexes
-        self.bgidxs = np.full(12, -1, dtype=int)
-        for i, bg in enumerate(self.bgs):
-            self.bgidxs[bg] = i
-
-        return self 
-
-
-def save(self, path=None):
-    saved_fields = [
-        'meta', 'run_kwargs', 'freqs', 'bgs', 'start_times', 'stop_times',
-        'sid', 'bias_array', 'bands', 'channels', 'ob_path',
-        'sc_path', 'state', 'bgmap', 'polarity',
-
-    ]
-    data = {k: getattr(self, k) for k in saved_fields}
-
-    results = [
-        'Ibias', 'Ites', 'res_freqs', 'Ztes', 'Ibias_dc',
-        'Rn', 'Rtes', 'Zeq', 'Vth', 'beta_I', 'L_I', 'tau_I',
-        'Rfit', 'tau_eff'
-    ]
-    for field in results: 
-        # These can be empty if analysis hasn't happened
-        data[field] = getattr(self, field, None)
-
-    if path is not None:
-        np.save(path, data, allow_pickle=True)
-        self.filepath = path
-        return path
-    else:
-        filepath = sdl.validate_and_save(
-            'ci_sweep.npy', data, S=self._S, cfg=self._cfg, register=True)
-        self.filepath = filepath
-        return filepath
-
-
-def _sine(ts, amp, freq, phase):
-    return amp * np.sin(2*np.pi*freq*ts + phase)
-
-
-def get_amps_and_phases(am, restrict_to_nperiods=None):
-    bg = 0
-    f0, f1 = .9 * am.cmd_freq, 1.1*am.cmd_freq
-    m = (f0 < am.fs) & (am.fs < f1)
-    idx = np.argmax(am.bias_axx[bg, m])
-    f = am.fs[m][idx]
-    f = am.fs[m][idx]
-    nchans, nsamps = am.signal.shape
-    am.sig_amps = np.ptp(am.filt_sig, axis=1) / 2
-
-    if restrict_to_nperiods is not None:
-        dur = restrict_to_nperiods / f
-        tmid = (am.timestamps[-1] - am.timestamps[0]) / 2 + am.timestamps[0]
-        t0, t1 = tmid - dur / 2, tmid + dur/2
-        restrict_to_times(am, t0, t1, in_place=True)
-
-    phis = np.linspace(0, 2*np.pi, 1000, endpoint=False)
-    bias_corr = np.zeros(len(phis))
-    sig_corr = np.zeros((nchans, len(phis)))
-
-    for i, phi in enumerate(phis):
-        template = _sine(am.timestamps, 1, f, phi)
-        bias_corr[i] = np.sum(template * am.biases[bg])
-        sig_corr[:, i] = np.sum(template[None, :] * am.filt_sig, axis=1)
-
-    if 'phis' not in am._fields:
-        am.wrap('phis', phis, [(0, IndexAxis('phase_idx'))])
-        am.wrap('bias_corr', bias_corr, [(0, 'phase_idx')])
-        am.wrap('sig_corr', sig_corr, [(0, 'dets'), (1, 'phase_idx')])
-    else:
-        am.phis = phis
-        am.bias_corr = bias_corr
-        am.sig_corr = sig_corr
-
-    am.sig_freq = f
-    am.bias_phase = phis[np.argmax(bias_corr)]
-    am.sig_phases = phis[np.argmax(sig_corr, axis=1)]
-
 
 def downsample(am, axis_name, ds_factor, in_place=True):
     """
@@ -281,10 +213,57 @@ def downsample(am, axis_name, ds_factor, in_place=True):
     dest._axes[axis_name] = new_ax
     return dest
 
-
-def analyze_seg(ds, tod, bg, i, arc=None, samps_per_period=50):
+################################################################################
+# CI Analysis
+################################################################################
+def analyze_seg(ds, tod, bg, i, samps_per_period=100):
     """
-    Analyzes segment. Stores results in axismanager
+    Analyze segment of CI data. The main goal of this is to calculate
+    the Ites phasor, containing the amplitude (pA) and phase (relative
+    tot he commanded) of the TES response to an incoming sine wave.
+
+    This performs the following steps:
+        1. Restrict full TOD to a single frequency. Downsamples lower-freq data
+        sets to the specified number of samps_per_period. This will put everything
+        units of pA, correct for channel polarity. This will also correct timestamps
+        based on the FrameCounter.
+        2. Takes PSD of the bias data to obtain the reference freq. Filters signal
+        using gaussian filter around reference freq.
+        3. Use lock-in amplification with bias as reference to extract
+        amplitude and phase of the filtered signal with respect to the
+        commanded bias.
+
+    Args
+    -----
+    ds : AxisManager
+        CI Dataset
+    tod : AxisManger
+        axis-manager containing tod for a given bias group
+    bg : int
+        Bias group that is being analyzed
+    i : int
+        Freq index. 0 will analyze the first freq segment taken.
+    samps_per_period : int
+        Maximum number of samps per period. This will be used to downsample
+        tods of low-frequencies, since the extremely high sample rates used make
+        it difficult to run on long segments.
+
+    Returns
+    ---------
+    am : AxisManager
+        Returns an souped-up tod axis-manager corresponding to this freq with
+        the following fields:
+         - timestmaps, biases, signal, ch_info. Standard tod axismanager stuff
+           but with units converted into pA, timestamps fixed, and offsets
+           subtracted out.
+         - sample_rate, cmd_freq: Floats with the sample rate and commanded
+           freq
+         - filt_sig: Filtered signal (using gaussian filter around commanded
+           freq)
+         - lockin_x, lockin_y: Lockin x and y signals, used to calc amp and phase
+           across the tod
+         - Ites: Phasor for Ites. Amplitude is the amp of the sine wave response,
+           and angle is the phase relative to the commanded bias.
     """
     t0, t1 = ds.start_times[bg, i], ds.stop_times[bg, i]
     am = restrict_to_times(tod, t0, t1, in_place=False)
@@ -298,14 +277,14 @@ def analyze_seg(ds, tod, bg, i, arc=None, samps_per_period=50):
         downsample(am, 'samps', ds_factor)
         sample_rate = 1./np.median(np.diff(am.timestamps))
 
-    nchans = len(am.signal)
-
     # Convert everything to pA
     am.signal = am.signal * ds.meta['pA_per_phi0'] / (2*np.pi)
 
     # Index mapping from am readout channel to sweep chan index.
-    chan_idxs = sdl.map_band_chans(am.ch_info.band, am.ch_info.channel,
-                                   ds.bands, ds.channels)
+    chan_idxs = sdl.map_band_chans(
+        am.ch_info.band, am.ch_info.channel,
+        ds.bands, ds.channels
+    )
     am.signal *= ds.polarity[chan_idxs, None]
 
     pA_per_bit = 2 * ds.meta['rtm_bit_to_volt']        \
@@ -332,14 +311,12 @@ def analyze_seg(ds, tod, bg, i, arc=None, samps_per_period=50):
     fs, bias_pxx = welch(am.biases[bg], fs=sample_rate, nperseg=nsamp)
 
     # Gaussian filter around peak freq of bias asd.
-    nchans, nsamps = am.signal.shape
     f0, f1 = .9 * am.cmd_freq, 1.1*am.cmd_freq
     m = (f0 < fs) & (fs < f1)
 
     idx = np.argmax(bias_pxx[m])
     f = fs[m][idx]
 
-    filt = gaussian_filter(f, f_sigma=f / 30)
     filt = gaussian_filter(f, f_sigma=f / 5)
     filt_sig = fourier_filter(am, filt)
     am.wrap('filt_sig', filt_sig, [(0, 'dets'), (1, 'samps')])
@@ -361,10 +338,20 @@ def analyze_seg(ds, tod, bg, i, arc=None, samps_per_period=50):
     am.wrap('lockin_x', X)
     am.wrap('lockin_y', Y)
     am.wrap('Ites', Ites)
-
     return am
 
 def analyze_tods(ds, bgs=None, tod=None, arc=None, show_pb=True):
+    """
+    Analyzes TODS for a CIData set. This will add the following fields to the
+    dataset:
+      - Ites(dets, steps): Ites phasor for each detector / frequency
+        combination. Amplitude is the amp of the current response (pA), and angle
+        is the phase relative to commanded bias.
+      - Ibias(biaslines): Amplitude (pA) of the sinewave used for each
+        biasline.
+      - Ibias_dc(biaslines): DC bias current (pA) for each biasline
+      - res_freqs(dets): Resonance frequency of each channel detectors.
+    """
     if bgs is None:
         bgs = ds.bgs
     bgs = np.atleast_1d(bgs)
@@ -406,6 +393,7 @@ def analyze_tods(ds, bgs=None, tod=None, arc=None, show_pb=True):
             try:
                 seg = analyze_seg(ds, _tod, bg, i)
             except RestrictionException:
+                # Means there's no data at the specified time
                 pb.update()
                 continue
             ds._Ites[chmap, i] = seg.Ites
@@ -418,11 +406,16 @@ def analyze_tods(ds, bgs=None, tod=None, arc=None, show_pb=True):
     return ds
 
 def get_ztes(ds):
-    ob, sc, tr = ds.ob, ds.sc, ds
-    sc_idxs = sdl.map_band_chans(sc.bands, sc.channels, tr.bands, tr.channels)
-    ob_idxs = sdl.map_band_chans(ob.bands, ob.channels, tr.bands, tr.channels)
-
-    nchans, nfreqs = len(tr.channels), len(tr.freqs)
+    """
+    Calculates Ztes for in-transition CIData. Adds the following fields to the
+    CI dataset:
+      - Rn (dets): Normal resistances based off of low-f overbiased data points.
+      - Rtes (dets): TES Resistance, based off of low-f in-transition segment
+      - Vth (dets): Thevenin equiv voltage
+      - Zeq (dets): Equiv impedance
+      - Ztes (dets): TES complex impedance
+    """
+    ob, sc = ds.ob, ds.sc
 
     fields = ['_Rn', '_Rtes', '_Vth', '_Zeq', '_Ztes']
     for f in fields:
@@ -437,25 +430,27 @@ def get_ztes(ds):
    
     # Calculates Rn
     Ib_ob = ob.Ibias[ob.bgmap][:, None]
-    ds._Rn = ob.meta.R_sh * (np.abs(Ib_ob / ob.Ites) - 1)[ob_idxs, 0]
-    ds._Rn[ob_idxs == -1] = np.nan
+    ds._Rn = ob.meta.R_sh * (np.abs(Ib_ob / ob.Ites) - 1)[:, 0]
 
     # Calculate Rtes for in-transition dets
-    Ib = tr.Ibias_dc[tr.bgmap]
-    dIrat = np.real(tr.Ites[:, 0]) / np.abs(tr.Ibias[tr.bgmap])
+    Ib = ds.Ibias_dc[ds.bgmap]
+
+    dIrat = np.real(ds.Ites[:, 0]) / np.abs(ds.Ibias[ds.bgmap])
     I0 = Ib * dIrat / (2 * dIrat - 1)
-    Pj = I0 * tr.meta.R_sh * (Ib - I0)
-    tr._Rtes = np.abs(Pj / I0**2)
+    Pj = I0 * ds.meta.R_sh * (Ib - I0)
+    ds._Rtes = np.abs(Pj / I0**2)
 
-    ds._Vth = 1./((1./ob.Ites - 1./sc.Ites) / ds._Rn[:, None])
-    ds._Zeq = ds._Vth / sc.Ites
+    Ites_ob = np.interp(ds.freqs, ob.freqs, ob.Ites)
+    Ites_sc = np.interp(ds.freqs, sc.freqs, sc.Ites)
+    ds._Vth = 1./((1./Ites_ob - 1./Ites_sc) / ds._Rn[:, None])
+    ds._Zeq = ds._Vth / Ites_sc
 
-    ds._Ztes = ds._Vth / tr.Ites - ds._Zeq
+    ds._Ztes = ds._Vth / ds.Ites - ds._Zeq
 
     for f in fields:
         ds.move(f, f[1:])
 
-    return True
+    return ds
 
 
 def Ztes_fit(f, R, beta, L, tau):
@@ -465,199 +460,168 @@ def Ztes_fit(f, R, beta, L, tau):
     return R * (1 + beta) \
         + R * L / (1 - L) * (2 + beta) / (1 + 2j * np.pi * f * tau)
 
+def guess_fit_params(ds, idx):
+    """
+    Gets initial params for fit at a particular freq idx
+    """
+    R = ds.Rtes[idx]
 
-def guess_fit_params(sw, idx):
+    min_idx = np.argmin(np.imag(ds.Ztes[idx]))
+    tau_guess = -1./(2*np.pi*ds.freqs[min_idx])
 
-    R = sw.Rtes[idx]
+    beta_guess = np.abs(ds.Ztes[idx, -1]) / R - 1
 
-    min_idx = np.argmin(np.imag(sw.Ztes[idx]))
-    tau_guess = -1./(2*np.pi*sw.freqs[min_idx])
+    L_guess = 1000
 
-    beta_guess = np.abs(sw.Ztes[idx, -1]) / R - 1
-
-    Z, f = sw.Ztes[idx, min_idx], sw.freqs[min_idx]
-    L_guess = 1000 # Just assume something very high
-    return (beta_guess, L_guess, tau_guess)
+    return (R, beta_guess, L_guess, tau_guess)
 
 
-def fit_single_det_params(sw, idx, x0=None, weights=None, fmax=None):
-    R = sw.Rtes[idx]
+def fit_single_det_params(ds, idx, x0=None, weights=None, fmax=None):
+    """
+    Fits detector parameters for a single channel
+    """
+    R = ds.Rtes[idx]
     if x0 is None:
-        x0 = guess_fit_params(sw, idx)
+        x0 = guess_fit_params(ds, idx)
 
     if weights is None:
-        weights = np.ones_like(sw.freqs)
+        weights = np.ones_like(ds.freqs)
 
     if fmax is not None:
-        weights[sw.freqs > fmax] = 0
+        weights[ds.freqs > fmax] = 0
 
     def chi2(x):
-        beta, L, tau = x
-        zfit = Ztes_fit(sw.freqs, R, *x)
-        c2 = np.nansum(weights * np.abs(sw.Ztes[idx] - zfit)**2)
+        zfit = Ztes_fit(ds.freqs, *x)
+        c2 = np.nansum(weights * np.abs(ds.Ztes[idx] - zfit)**2)
         return c2
 
-    def chi2(x):
-        zfit = Ztes_fit(sw.freqs, *x)
-        c2 = np.nansum(weights * np.abs(sw.Ztes[idx] - zfit)**2)
-        return c2
-
-    x0 = (R, *x0)
-    # This is the default ftol, but we need it saved for uncertainty calc.
-    ftol = 2.220446049250313e-09 
-    res = minimize(chi2, x0, tol=ftol)
+    res = minimize(chi2, x0)
     if list(res.x) == list(x0):
         res.success = False
 
-    # Uncertainties
-    # (https://stackoverflow.com/questions/43593592/errors-to-fit-parameters-of-scipy-optimize)
-    dx = np.sqrt(max(1, abs(res.fun)) * ftol * res.hess_inv.diagonal())
-    return res, dx
+    return res
 
+def fit_det_params(ds, pb=False, fmax=None):
+    """
+    Fits detector params for a sweep.
 
-def calc_tau_eff(ds):
-    # This is the equation: (there must be a better way)
-    #   tau_eff = tau_I * (1 - L_I) * (1 + beta_I + RL / Rfit) \
-    #             / (1 + beta_I + RL / Rfit + L_I * (1 - RL / Rfit))
-    RL = NDDataRef(ds.meta.R_sh)
-    one = NDDataRef(1)
-    Rfit, beta_I, L_I, tau_I =  [
-        NDDataRef(ds.fit_x[:, i], 
-              nduncertainty.StdDevUncertainty(ds.fit_dx[:, i]))
-        for i in range(4)
-    ]
+    ds : AxisManager
+        CIData
+    pb : bool
+        If True, wil display progressbar. 
+    fmax : optional, float
+        If set, will only fit using freq values less than fmax.
+    """
+    fields = ['_fit_x', '_fit_labels', '_tau_eff', '_Rfit', '_beta_I', '_L_I',
+        '_tau_I']
 
-    f1 = one.subtract(L_I)
-    f2 = one.add(beta_I).add(RL.divide(Rfit))
-    f3 = one.add(beta_I).add(RL.divide(Rfit)).add(
-        L_I.multiply(one.subtract(RL.divide(Rfit)))
-    )
-    tau_eff = tau_I.multiply(f1).multiply(f2).divide(f3)
-    for f in ['tau_eff', 'dtau_eff']:
-        if f in ds._fields:
-            ds.move(f, None)
-
-    ds.wrap('tau_eff', tau_eff.data, [(0, 'dets')])
-    ds.wrap('dtau_eff', tau_eff.uncertainty.array, [(0, 'dets')])
-    return tau_eff
-
-def fit_det_params(ds, x0=None, weights=None, pb=True, fmax=None):
-    fields = ['_beta_I', '_L_I', '_tau_I', '_Rfit', '_tau_eff','_fit_x',
-              '_fit_dx', '_fit_labels']
     for f in fields:
         if f in ds._fields:
             ds.move(f, None)
 
-    for f in ['_beta_I', '_L_I', '_tau_I', '_Rfit', '_tau_eff']:
+    for f in ['_tau_eff', '_Rfit', '_beta_I', '_L_I']:
         ds.wrap_new(f, ('dets', ), cls=np.full, fill_value=np.nan)
-    ds.wrap_new('_fit_x', ('dets', 4), cls=np.full, fill_value=np.nan)
-    ds.wrap_new('_fit_dx', ('dets', 4), cls=np.full, fill_value=np.nan)
     ds.wrap('_fit_labels', np.array(['R', 'beta_I', 'L_I', 'tau_I']))
+    ds.wrap_new('_fit_x', ('dets', 4), cls=np.full, fill_value=np.nan)
 
     for i in trange(len(ds.channels), disable=(not pb)):
         if ds.bgmap[i] == -1: continue
 
         res, dx = fit_single_det_params(ds, i, fmax=fmax)
         ds._fit_x[i, :] = res.x
-        ds._fit_dx[i, :] = dx
+    
+    # Compute tau_eff
+    RL = ds.meta.R_sh
+    ds._Rfit, ds._beta_I, ds._L_I, ds._tau_I = ds.fit_x.T
+    ds.tau_eff = ds._tau_I * (1 - ds._L_I) * (1 + ds._beta_I + RL / ds._Rfit) \
+        / (1 + ds._beta_I + RL / ds._Rfit + ds._L_I * (1 - RL / ds._Rfit))
 
     for f in fields:
         ds.move(f, f[1:])
 
-    calc_tau_eff(ds)
     return True
 
 ###########################################################################
 # Plotting functions
 ###########################################################################
-def plot_bg_transfers(sw, bgs):
-    bgs = np.atleast_1d(bgs)
+def plot_transfers(d, rc):
+    """
+    Plot the SC, OB, and in-transition transfer functions for a channel
+    """
+    bg = d.bgmap[rc]
 
-    fig, axes=  plt.subplots(1, 2, figsize=(12, 5))
-    nchans = 0
-    for i in range(len(sw.channels)):
-        if sw.bgmap[i] not in bgs:
-            continue
-        nchans += 1
-        mag = np.abs(sw.Ites[i]) / np.abs(sw.Ibias[sw.bgmap[i]])
-        phase = np.unwrap(np.angle(sw.Ites[i]))
-        if phase[0] < -1:
-            phase += 2*np.pi
-        axes[0].plot(sw.freqs, mag, color='grey', alpha=0.1)
-        axes[1].plot(sw.freqs, phase, color='grey', alpha=0.1)
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    labels = ['Transition', 'superconducting', 'overbiased']
+
+    for i, s in enumerate([d, d.sc, d.ob]):
+        mag = np.abs(s.Ites[rc])/s.Ibias[bg]
+        phase = np.unwrap(np.angle(s.Ites[rc]))
+        axes[0].plot(s.freqs, mag, '.', label=labels[i])
+        axes[1].plot(s.freqs, phase, '.', label=labels[i])
     axes[0].set(xscale='log', yscale='log')
-    axes[0].set_ylabel("Transfer Function")
-    axes[1].set_ylabel("Phase (rad)")
-    for ax in axes.ravel():
-        ax.set_xlabel('Freq (Hz)')
-
-    axes[0].text(0.05, 0.05, f"Showing {nchans} chans", transform=axes[0].transAxes)
+    axes[0].legend()
+    axes[1].legend()
     return fig, axes
 
-def plot_state_transfers(sw, idx):
-    fig, axes=  plt.subplots(1, 2, figsize=(12, 5))
+def plot_ztes(ds, rc, x=None, write_text=True):
+    """
+    plots Ztes data
 
-    colors=['C0', 'C1', 'C2']
-    labels = ['Trans', 'OB', 'SC']
-    for i, s in enumerate([sw, sw.ob, sw.sc]):
-        mag = np.abs(s.Ites[idx]) / np.abs(s.Ibias[s.bgmap[idx]])
-        phase = np.unwrap(np.angle(s.Ites[idx]))
-        if phase[0] < -1:
-            phase += 2*np.pi
+    Args
+    -----
+    ds : AxisManager
+        analyzed CIData object
+    rc : int
+        Channel whose data to plot
+    x : optional, list
+        Fit params to plot instead of the ones stored in the CIData object.
+    write_text : bool
+        If textbox with param data should be written.
+    """
+    dims = np.array([2.5, 1])
+    fig, axes = plt.subplots(1, 2, figsize=5 * dims)
 
-        isort = np.argsort(sw.freqs)
-        axes[0].plot(sw.freqs[isort], mag[isort], color=colors[i],
-                     label=labels[i])
-        axes[1].plot(sw.freqs[isort], phase[isort], color=colors[i], 
-                     label=labels[i])
+    ztes = 1000 * ds.Ztes[rc]
+    fs = np.linspace(0, np.max(ds.freqs), 1000)
+    if x is None:
+        x = ds.fit_x[rc]
+    zfit = 1000 * Ztes_fit(fs, *x)
 
-    axes[0].set(xscale='log', yscale='log')
-    axes[0].set_ylabel("Transfer Function")
-    axes[1].set_ylabel("Phase (rad)")
-    for ax in axes.ravel():
-        ax.legend()
-        ax.set_xlabel('Freq (Hz)')
-
-def plot_ztes(sw, idx, fit=True):
-    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
-
-    fs = np.linspace(0, np.max(sw.freqs), 2000)
-    ztes = sw.Ztes[idx] * 1000
-    if hasattr(sw, 'fit_x'):
-        zfit = Ztes_fit(fs, *sw.fit_x[idx]) * 1000
-    else:
-        zfit = Ztes_fit(fs, sw.Rfit[idx], sw.beta_I[idx], sw.L_I[idx],
-                        sw.tau_I[idx]) * 1000
-
+    # Circ plot
     ax = axes[0]
-    im = ax.scatter(np.real(ztes), np.imag(ztes), c=np.log(sw.freqs), s=20)
-    ax.plot(np.real(zfit), np.imag(zfit))
-    ax.set_xlabel("Re[Z$_\mathrm{TES}$]", fontsize=14)
-    ax.set_ylabel("Im[Z$_\mathrm{TES}$]", fontsize=14)
-    fig.colorbar(im, ax=ax)
+    ax.scatter(np.real(ztes), np.imag(ztes), c=np.log(ds.freqs), marker='.')
+    ax.plot(np.real(zfit), np.imag(zfit), color='black', ls='--', alpha=0.6)
+    ax.set_xlabel(r'Re[$Z_\mathrm{TES}$] (m$\Omega$)', fontsize=16)
+    ax.set_ylabel(r'Im[$Z_\mathrm{TES}$] (m$\Omega$)', fontsize=16)
 
+    ## Param summary
+    txt = '\n'.join([
+        r'$\tau_\mathrm{eff}$ = ' + f'{ds.tau_eff[rc]*1000:.2f} ms',
+        r'$R_\mathrm{fit}$ = ' + f'{x[0]*1000:.2f} '+ r'm$\Omega$',
+        r'$\beta_I$ = ' + f'{x[1]:.2f}',
+        r'$\mathcal{L}_I$ = ' + f'{x[2]:.2f}',
+        r'$\tau_I$ = ' + f'{x[3]*1000:.2f} ms',
+        r'$r^2$ = ' + f'{ds.ztes_rsquared[rc]:.2f}',
+    ])
+    if write_text:
+        ax.text(0.05, 0.05, txt, transform=ax.transAxes, fontsize=12,
+                bbox=dict(facecolor='white', alpha=0.8, edgecolor='black'))
+
+    # Im / Re plot
     ax = axes[1]
-    ax.scatter(sw.freqs, np.real(ztes), s=20)
-    ax.scatter(sw.freqs, np.imag(ztes), s=20)
-    ax.plot(fs, np.real(zfit), label='Real')
-    ax.plot(fs, np.imag(zfit), label='Imag')
+    ax.plot(ds.freqs, np.real(ztes), '.', color='C0')
+    ax.plot(ds.freqs, np.imag(ztes), '.', color='C1')
+    ax.plot(fs, np.real(zfit), color='C0', alpha=0.8, ls='--')
+    ax.plot(fs, np.imag(zfit), color='C1', alpha=0.8, ls='--')
     ax.set(xscale='log')
-    ax.set_xlabel("Freq (Hz)")
-    ax.set_ylabel("Z$_\mathrm{TES}$ (mOhms)")
-    ax.legend()
+    ax.set_xlabel("Freq (Hz)", fontsize=16)
+    ax.set_ylabel(r"$Z_\mathrm{TES}$ (m$\Omega$)", fontsize=16)
 
-    b, c, bg = sw.bands[idx], sw.channels[idx], sw.bgmap[idx]
-    fig.suptitle(f"Band {b}, Channel {c}, BG {bg}", fontsize=20)
-
-    return fig, axes
-
-
-
+    return fig, ax
 
 ###########################################################################
 # Data Taking Functions
 ###########################################################################
-
 @sdl.set_action()
 def take_complex_impedance(
         S, cfg, bgs, freqs=None, state='transition', nperiods=500,
@@ -700,29 +664,19 @@ def take_complex_impedance(
         freqs = np.logspace(0, np.log10(4e3), 20)
     freqs = np.atleast_1d(freqs)
 
-    run_kwargs = {
-        'bgs': bgs, 'freqs': freqs, 'nperiods': nperiods,
-        'max_meas_time': max_meas_time, 'tickle_voltage': tickle_voltage,
-    }
-    nfreqs = len(freqs)
-    nbgs = len(bgs)
-    start_times = np.zeros((nbgs, nfreqs), dtype=float)
-    stop_times = np.zeros((nbgs, nfreqs), dtype=float)
-    sids = np.zeros(nbgs, dtype=int)
+    run_kwargs = locals()
+
+    # First, determine which bands and channels we'll try to run on.
+    scale_array = np.array([S.get_amplitude_scale_array(b) for b in range(8)])
+    bands, channels = np.where(scale_array > 0)
+
+    # Main dataset
+    ds = new_ci_dset(S, cfg, bands, channels, freqs, run_kwargs=run_kwargs)
 
     initial_ds_factor = S.get_downsample_factor()
     initial_filter_disable = S.get_filter_disable()
 
-    bgmap_dict = np.load(cfg.dev.exp['bgmap_file'], allow_pickle=True).item()
-    bgmap_bands, bgmap_chans, bgmap = [
-        bgmap_dict[k] for k in ['bands', 'channels', 'bgmap']
-    ]
-
-    bands = []
-    channels = []
-    scale_array = np.array([S.get_amplitude_scale_array(b) for b in range(8)])
-
-    pb = tqdm(total=nfreqs*nbgs, disable=False)
+    pb = tqdm(total=len(freqs)*len(bgs), disable=False)
     try:
         S.set_downsample_factor(1)
         S.set_filter_disable(1)
@@ -730,41 +684,34 @@ def take_complex_impedance(
         tickle_voltage /= S.high_low_current_ratio
 
         init_biases = S.get_tes_bias_bipolar_array()
+        for bg in bgs:
+            m = ds.bgmap == bg
+            channel_mask = ds.bands[m] * S.get_number_channels + ds.channels[m]
 
-        for i, bg in enumerate(bgs):
-            # We want to run with channels that are in the specified bg
-            # and are enabled.
-            m = (scale_array[bgmap_bands, bgmap_chans] > 0) & (bgmap == bg)
-            channel_mask = bgmap_bands[m] * S.get_number_channels() + bgmap_chans[m]
-            bands.extend(bgmap_bands[m])
-            channels.extend(bgmap_chans[m])
-
-            sids[i] = sdl.stream_g3_on(S, channel_mask=channel_mask)
+            ds.sids[bg] = sdl.stream_g3_on(S, channel_mask=channel_mask)
             for j, freq in enumerate(freqs):
                 meas_time = min(1./freq * nperiods, max_meas_time)
                 S.log(f"Tickle with bg={bg}, freq={freq}")
                 S.play_sine_tes(bg, tickle_voltage, freq)
-                start_times[i, j] = time.time()
+                ds.start_times[bg, j] = time.time()
                 time.sleep(meas_time)
-                stop_times[i, j] = time.time()
+                ds.stop_times[bg, j] = time.time()
                 S.set_rtm_arb_waveform_enable(0)
                 S.set_tes_bias_bipolar(bg, init_biases[bg])
                 pb.update()
             sdl.stream_g3_off(S)
-
-
-        bands = np.array(bands)
-        channels = np.array(channels)
-        sweep = CISweep(S, cfg, run_kwargs, sids, start_times, stop_times,
-                        bands, channels, state)
-        sweep.save()
     finally:
         sdl.set_current_mode(S, bgs, 0)
         S.set_downsample_factor(initial_ds_factor)
         S.set_filter_disable(initial_filter_disable)
         sdl.stream_g3_off(S)
 
-    return sweep
+    fname = sdl.make_filename(S, f'ci_sweep_{state}.h5')
+    ds.wrap('filepath', fname)
+    ds.save(fname)
+    S.pub.register_file(fname, 'ci', format='h5', plot=False)
+
+    return ds
 
 def take_complex_impedance_ob_sc(S, cfg, bgs, overbias_voltage=19.9,
                                  tes_bias=15.0, overbias_wait=5.0,
@@ -793,7 +740,6 @@ def take_complex_impedance_ob_sc(S, cfg, bgs, overbias_voltage=19.9,
         Any additional kwargs will be passed directly to the
         ``take_complex_impedance`` function.
     """
-
     # Takes SC sweep
     for bg in bgs:
         S.set_tes_bias_bipolar(bg, 0)

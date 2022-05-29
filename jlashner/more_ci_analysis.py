@@ -284,3 +284,201 @@ def wrap_bs(ds, bs):
 
 def plot_bias_steps(ds, rc):
     pass
+
+### Random stuff from old CI code that I don't want to delete
+
+def sw_to_dset(sw):
+    ndets = len(sw.channels)
+    nfreqs = len(sw.freqs)
+    ds = AxisManager(
+        LabelAxis('dets', vals=[f"{x:0>4}" for x in range(ndets)]),
+        IndexAxis('biaslines', count=NBGS),
+        IndexAxis('steps', count=nfreqs)
+    )
+
+    ds.wrap('meta', dict_to_am(sw.meta))
+    ds.wrap('run_kwargs', dict_to_am(sw.run_kwargs))
+    ds.wrap('freqs', sw.freqs, [(0, 'steps')])
+    ds.wrap('bgs', sw.bgs)
+    ds.wrap_new('start_times', ('biaslines', 'steps'), 
+                cls=np.full, fill_value=np.nan)
+    ds.wrap_new('stop_times', ('biaslines', 'steps'), 
+                cls=np.full, fill_value=np.nan)
+    ds.wrap_new('sid', ('biaslines',), cls=np.zeros, dtype=int)
+
+    for i, bg in enumerate(sw.bgs):
+        ds.start_times[bg] = sw.start_times[i]
+        ds.stop_times[bg] = sw.stop_times[i]
+        ds.sid[bg] = sw.sid[i]
+
+    ds.wrap('bands', sw.bands, [(0, 'dets')])
+    ds.wrap('channels', sw.channels, [(0, 'dets')])
+    ds.wrap('bgmap', sw.bgmap, [(0, 'dets')])
+    ds.wrap('polarity', sw.polarity, [(0, 'dets')])
+    ds.wrap('state', sw.state)
+    ds.wrap('ob_path', sw.ob_path)
+    ds.wrap('sc_path', sw.sc_path)
+    return ds
+
+class CISweep:
+    """
+    Complex impedance overview class.
+
+    Attributes
+    -----------
+    Ibias : np.ndarry
+        Phasors created from the commanded bias data for each bias-group.  The
+        amplitude is the amplitude of the sine-wave on the bias line (in pA),
+        and the phase is the phase relative to the start time of the
+        freq-segment after restricting the axis-manager to nperiods.
+    Ites : np.ndarray
+        Phasor of the TES current, with the amp being the amplitude of the
+        sine wave of the TES current (pA), and phase being the phase of the
+        sine wave relative commanded bias-signal. (relative to the Ibias phase)
+    Ztes : np.ndarray
+        Array of z-tes
+    """
+    def __init__(self, *args, **kwargs):
+        self.bg_loaded = None
+        self.am = None
+
+        if len(args) > 0:
+            self.initialize(*args, **kwargs)
+
+    def initialize(self, S, cfg, run_kwargs, sid, start_times, stop_times,
+                   bands, channels, state):
+        self._S = S
+        self._cfg = cfg
+        self.meta = sdl.get_metadata(S, cfg)
+        self.run_kwargs = run_kwargs
+        self.freqs = run_kwargs['freqs']
+        self.bgs = run_kwargs['bgs']
+        self.tickle_voltage = run_kwargs['tickle_voltage']
+        self.start_times = start_times
+        self.stop_times = stop_times
+        self.sid = sid
+        self.bias_array = S.get_tes_bias_bipolar_array()
+        self.bands = bands
+        self.channels = channels
+        self.nchans = len(channels)
+        self.nfreqs = len(self.freqs)
+        self.nbgs = len(self.bias_array)
+
+        # Load bgmap data
+        self.bgmap, self.polarity = sdl.load_bgmap(self.bands, self.channels,
+                                                   self.meta['bgmap_file'])
+
+        self.ob_path = cfg.dev.exp.get('complex_impedance_ob_path')
+        self.sc_path = cfg.dev.exp.get('complex_impedance_sc_path')
+        self.state = state
+
+    def load_am(self, bg, arc=None):
+        if self.bg_loaded == bg:
+            return self.am
+
+        bgi = np.where(self.bgs == bg)[0][0]
+        if arc is not None:
+            start = self.start_times[bgi, 0]
+            stop = self.stop_times[bgi, -1]
+            self.am = arc.load_data(start, stop, show_pb=False)
+        else:
+            sid = self.sid[bgi]
+            self.am = sdl.load_session(self.meta['stream_id'], sid)
+
+        self.bg_loaded = bg
+        return self.am
+
+    @classmethod 
+    def load(cls, path): 
+        """ 
+        Loads a CISweep object from file
+        """
+        self = cls()
+        for k, v in np.load(path, allow_pickle=True).item().items():
+            setattr(self, k, v)
+
+        self.filepath = path
+
+        # Re-initializes some important things that may not be saved in the
+        # output file
+
+        # bg-indexes
+        self.bgidxs = np.full(12, -1, dtype=int)
+        for i, bg in enumerate(self.bgs):
+            self.bgidxs[bg] = i
+
+        return self 
+
+
+def save(self, path=None):
+    saved_fields = [
+        'meta', 'run_kwargs', 'freqs', 'bgs', 'start_times', 'stop_times',
+        'sid', 'bias_array', 'bands', 'channels', 'ob_path',
+        'sc_path', 'state', 'bgmap', 'polarity',
+
+    ]
+    data = {k: getattr(self, k) for k in saved_fields}
+
+    results = [
+        'Ibias', 'Ites', 'res_freqs', 'Ztes', 'Ibias_dc',
+        'Rn', 'Rtes', 'Zeq', 'Vth', 'beta_I', 'L_I', 'tau_I',
+        'Rfit', 'tau_eff'
+    ]
+    for field in results: 
+        # These can be empty if analysis hasn't happened
+        data[field] = getattr(self, field, None)
+
+    if path is not None:
+        np.save(path, data, allow_pickle=True)
+        self.filepath = path
+        return path
+    else:
+        filepath = sdl.validate_and_save(
+            'ci_sweep.npy', data, S=self._S, cfg=self._cfg, register=True)
+        self.filepath = filepath
+        return filepath
+
+
+def _sine(ts, amp, freq, phase):
+    return amp * np.sin(2*np.pi*freq*ts + phase)
+
+
+def get_amps_and_phases(am, restrict_to_nperiods=None):
+    bg = 0
+    f0, f1 = .9 * am.cmd_freq, 1.1*am.cmd_freq
+    m = (f0 < am.fs) & (am.fs < f1)
+    idx = np.argmax(am.bias_axx[bg, m])
+    f = am.fs[m][idx]
+    f = am.fs[m][idx]
+    nchans, nsamps = am.signal.shape
+    am.sig_amps = np.ptp(am.filt_sig, axis=1) / 2
+
+    if restrict_to_nperiods is not None:
+        dur = restrict_to_nperiods / f
+        tmid = (am.timestamps[-1] - am.timestamps[0]) / 2 + am.timestamps[0]
+        t0, t1 = tmid - dur / 2, tmid + dur/2
+        restrict_to_times(am, t0, t1, in_place=True)
+
+    phis = np.linspace(0, 2*np.pi, 1000, endpoint=False)
+    bias_corr = np.zeros(len(phis))
+    sig_corr = np.zeros((nchans, len(phis)))
+
+    for i, phi in enumerate(phis):
+        template = _sine(am.timestamps, 1, f, phi)
+        bias_corr[i] = np.sum(template * am.biases[bg])
+        sig_corr[:, i] = np.sum(template[None, :] * am.filt_sig, axis=1)
+
+    if 'phis' not in am._fields:
+        am.wrap('phis', phis, [(0, IndexAxis('phase_idx'))])
+        am.wrap('bias_corr', bias_corr, [(0, 'phase_idx')])
+        am.wrap('sig_corr', sig_corr, [(0, 'dets'), (1, 'phase_idx')])
+    else:
+        am.phis = phis
+        am.bias_corr = bias_corr
+        am.sig_corr = sig_corr
+
+    am.sig_freq = f
+    am.bias_phase = phis[np.argmax(bias_corr)]
+    am.sig_phases = phis[np.argmax(sig_corr, axis=1)]
+
+
