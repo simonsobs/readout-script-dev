@@ -72,7 +72,7 @@ def tickle_and_iv(
 
 
 @set_action()
-def tes_yield(target_bg, out_fn, start_time, S=None):
+def tes_yield(S, target_bg, out_fn, start_time):
     data_dict = np.genfromtxt(out_fn, delimiter=",", dtype=None, names=True, encoding=None)
     
     data = np.atleast_1d(data_dict['data_path'])
@@ -80,10 +80,10 @@ def tes_yield(target_bg, out_fn, start_time, S=None):
     good_chans = 0
     all_data_IV = dict()
 
-    for ind, bl in enumerate(target_bg):
+    for i, bl in enumerate(target_bg):
         if bl not in all_data_IV.keys():
             all_data_IV[bl] = dict()
-        now = np.load(data[bl], allow_pickle=True).item()
+        now = np.load(data[i], allow_pickle=True).item()
 
         idx = now['bgmap'] == bl
         for ind in range(np.sum(idx)):
@@ -107,8 +107,7 @@ def tes_yield(target_bg, out_fn, start_time, S=None):
                 all_data_IV[bl][sb] = dict()
             all_data_IV[bl][sb][chan] = d
 
-    if S is not None:
-        S.pub.register_file(out_fn, "tes_yield", format='.csv')
+    S.pub.register_file(out_fn, "tes_yield", format='.csv')
 
     operating_r = dict()
     # operating_r will contain list of achieved rfracs for each vbias
@@ -158,10 +157,9 @@ def tes_yield(target_bg, out_fn, start_time, S=None):
 
         target_vbias_dict[bl] = round(med_target_v_bias, 3)
 
-    if S is not None:
-        target_vbias_fp = os.path.join(S.output_dir, f"{start_time}_target_vbias.npy")
-        np.save(target_vbias_fp, target_vbias_dict, allow_pickle=True)
-        S.pub.register_file(target_vbias_fp, "tes_yield", format='npy')
+    target_vbias_fp = os.path.join(S.output_dir, f"{start_time}_target_vbias.npy")
+    np.save(target_vbias_fp, target_vbias_dict, allow_pickle=True)
+    S.pub.register_file(target_vbias_fp, "tes_yield", format='npy')
 
     fig, axs = plt.subplots(6, 4,figsize=(25,30), gridspec_kw={'width_ratios': [2, 1,2,1]})
     tes_total = 0
@@ -202,12 +200,11 @@ def tes_yield(target_bg, out_fn, start_time, S=None):
         )
 
     plt.suptitle(f"TES total yield: {tes_total}")
-    if S is not None:
-        save_name = os.path.join(S.plot_dir, f'{start_time}_IV_yield.png')
-        logger.info(f'Saving plot to {save_name}')
-        plt.savefig(save_name)
+    save_name = os.path.join(S.plot_dir, f'{start_time}_IV_yield.png')
+    logger.info(f'Saving plot to {save_name}')
+    plt.savefig(save_name)
 
-        S.pub.register_file(save_name, "tes_yield", plot=True)
+    S.pub.register_file(save_name, "tes_yield", plot=True)
 
     fig, axs = plt.subplots(6, 4, figsize=(25,30))
     tes_total = 0
@@ -252,13 +249,12 @@ def tes_yield(target_bg, out_fn, start_time, S=None):
         ax_rn.set_title('bl {}, median Rn {:.4f} Ohm'.format(bl,np.median(Rn)))
 
     plt.suptitle(f"TES total yield: {tes_total}")
-    if S is not None:
-        save_name = os.path.join(S.plot_dir, f'{start_time}_IV_psat.png')
-        logger.info(f'Saving plot to {save_name}')
-        logger.info(f"TES total yield: {tes_total}")
-        plt.savefig(save_name)
+    save_name = os.path.join(S.plot_dir, f'{start_time}_IV_psat.png')
+    logger.info(f'Saving plot to {save_name}')
+    logger.info(f"TES total yield: {tes_total}")
+    plt.savefig(save_name)
 
-        S.pub.register_file(save_name, "tes_yield", plot=True)
+    S.pub.register_file(save_name, "tes_yield", plot=True)
 
     return target_vbias_dict
 
@@ -266,12 +262,12 @@ def tes_yield(target_bg, out_fn, start_time, S=None):
 def run(S, cfg, bias_high=20, bias_low=0, bias_step=0.025, bath_temp=100,
         current_mode='low', make_bgmap=False):
     start_time = S.get_timestamp()
-    target_bg = np.arange(12)
+    target_bg = [1] #np.arange(12)
 
     out_fn = tickle_and_iv(
         S, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,
         current_mode, make_bgmap)
-    target_vbias = tes_yield(target_bg, out_fn, start_time, S=S)
+    target_vbias = tes_yield(S, target_bg, out_fn, start_time)
     logger.info(f'Saving data to {out_fn}')
     return target_vbias
 

@@ -121,11 +121,11 @@ class UCTuner:
         """
         uc_attens = np.array(
             [
-                self.current_uc_att - 10,
-                self.current_uc_att - 5,
-                self.current_uc_att,
-                self.current_uc_att + 5,
-                self.current_uc_att + 10,
+                self.estimate_att - 10,
+                self.estimate_att - 5,
+                self.estimate_att,
+                self.estimate_att + 5,
+                self.estimate_att + 10,
             ]
         )
         uc_attens = uc_attens[np.where((uc_attens <= 30) & (uc_attens >= 0))]
@@ -139,11 +139,11 @@ class UCTuner:
         """
         uc_attens = np.array(
             [
-                self.current_uc_att - 4,
-                self.current_uc_att - 2,
-                self.current_uc_att,
-                self.current_uc_att + 2,
-                self.current_uc_att + 4,
+                self.estimate_att - 4,
+                self.estimate_att - 2,
+                self.estimate_att,
+                self.estimate_att + 2,
+                self.estimate_att + 4,
             ]
         )
         uc_attens = uc_attens[np.where((uc_attens <= 30) & (uc_attens >= 0))]
@@ -174,7 +174,7 @@ class UCTuner:
         """
         self.set_tone_and_uc(
             tone_power=self.current_tone_power + 2,
-            uc_att=np.min([self.current_uc_att + 11, 30])
+            uc_att=np.min([self.estimate_att + 11, 30])
         )
 
 
@@ -185,5 +185,5 @@ class UCTuner:
         """
         self.set_tone_and_uc(
             tone_power=self.current_tone_power - 2,
-            uc_att=np.max([self.current_uc_att - 11, 0])
+            uc_att=np.max([self.estimate_att - 11, 0])
         )
