@@ -211,7 +211,7 @@ def process_iv_data(fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, m
                     if psat > prev_psat:
                         psat = False
                 except:
-                    psat = True
+                    pass
 
             if psat:
                 # key creation
@@ -239,7 +239,7 @@ def process_iv_data(fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, m
                         if psat > prev_psat:
                             psat = False
                     except:
-                        psat = True
+                        pass
 
                 if psat:
                     # key creation
