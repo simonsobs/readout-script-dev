@@ -204,9 +204,14 @@ def process_iv_data(fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, m
             d["p_tes"] *= 1e12
             d["p_sat"] *= 1e12
 
-            psat = do_iv_cuts(
-                bl, sb, ch, d, data_dict, cut_increasing_psat, min_rn, max_rn
-            )
+            psat = do_iv_cuts(d, min_rn, max_rn)
+            if psat and cut_increasing_psat:
+                try:
+                    prev_psat = data_dict[bl][sb][ch]["psat"][-1]
+                    if psat > prev_psat:
+                        psat = False
+                except:
+                    psat = True
 
             if psat:
                 # key creation
@@ -227,9 +232,14 @@ def process_iv_data(fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, m
             if sb == "high_current_mode":
                 continue
             for ch, d in iv_analyzed[sb].items():
-                psat = do_iv_cuts(
-                    bl, sb, ch, d, data_dict, cut_increasing_psat, min_rn, max_rn
-                )
+                psat = do_iv_cuts(d, min_rn, max_rn)
+                if psat and cut_increasing_psat:
+                    try:
+                        prev_psat = data_dict[bl][sb][ch]["psat"][-1]
+                        if psat > prev_psat:
+                            psat = False
+                    except:
+                        psat = True
 
                 if psat:
                     # key creation
@@ -248,7 +258,7 @@ def process_iv_data(fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, m
     return data_dict
 
 
-def do_iv_cuts(bl, sb, ch, d, data_dict, cut_increasing_psat, min_rn, max_rn):
+def do_iv_cuts(d, min_rn, max_rn):
     # same cuts as for iv plots
     ind = np.where(d["p_tes"] > 15)[0]
     if len(ind) == 0:
@@ -264,14 +274,6 @@ def do_iv_cuts(bl, sb, ch, d, data_dict, cut_increasing_psat, min_rn, max_rn):
     psat = d["p_tes"][psat_idx]
     if psat < 0:
         return False
-
-    if cut_increasing_psat:
-        try:
-            prev_psat = data_dict[bl][sb][ch]["psat"][-1]
-            if psat > prev_psat:
-                return False
-        except:
-            pass
 
     if not min_rn < d["R_n"] < max_rn:
         return False
@@ -725,10 +727,13 @@ def analyze_bathramp(
 
 def plot_bathramp_iv(
     metadata_fp,
+    x_axis='p_tes',
+    y_axis='R',
     temp=100,
     ls_ch=15,
     plot_title="",
     return_data=False,
+    **plot_kwargs,
 ):
     """
     Plots the IVs for each bias line taken at specified bath temperature.
@@ -739,6 +744,9 @@ def plot_bathramp_iv(
                              names=True, encoding=None)
     data_dict = {}
     tot = 0
+
+    fig, axs = plt.subplots(3, 4,figsize=(18,18), sharex=True, sharey=True)
+
     for line in metadata:
         try:
             this_temp, bias, bl, sb, fp, note = line
@@ -756,6 +764,8 @@ def plot_bathramp_iv(
         if bl == "all":
             continue
         bl = int(bl)
+        ax = axs[np.unravel_index(bl, (3,4))]
+
         if 'iv_raw_data' in fp:
             iv_analyzed_fp = fp.replace("iv_raw_data", "iv")
         elif 'iv_info' in fp:
@@ -782,7 +792,6 @@ def plot_bathramp_iv(
         if 'data' in iv_analyzed.keys():
             iv_analyzed = iv_analyzed['data']
 
-        plt.figure()
         now_tot = 0
 
         if bl not in data_dict.keys():
@@ -798,58 +807,54 @@ def plot_bathramp_iv(
                 d = {}
                 for k in [
                     'R', 'R_n','R_L', 'p_tes','v_tes', 'i_tes',
-                    'p_sat','si',
+                    'p_sat','si', 'v_bias',
                 ]:
                     d[k] = iv_analyzed[k][idx][ind]
                 d['p_tes'] *= 1e12
                 d['p_sat'] *= 1e12 
 
-                psat = do_iv_cuts(
-                    bl, sb, ch, d, data_dict, cut_increasing_psat, min_rn, max_rn)
+                psat = do_iv_cuts(d, 6e-3, 9e-3)
 
                 if psat:
                     # key creation
                     if sb not in data_dict[bl].keys():
                         data_dict[bl][sb] = dict()
-                    if ch not in data_dict[bl][sb].keys():
-                        data_dict[bl][sb][ch] = {
-                            "temp" : [], "psat" : [], "R_n" : [], 
-                        }
-                    data_dict[bl][sb][ch]['temp'].append(temp_corr)
-                    data_dict[bl][sb][ch]['psat'].append(psat)
-                    data_dict[bl][sb][ch]["R_n"].append(d["R_n"])
+                    d["Rfrac"] = d['R']/d['R_n']
+                    data_dict[bl][sb][ch] = d
 
-                    plt.plot(d['p_tes'],d['R'])
+                    ax.plot(d[x_axis], d[y_axis])
                     now_tot += 1
         else:
             for sb in iv_analyzed.keys():
                 if sb == "high_current_mode":
                     continue
                 for ch, d in iv_analyzed[sb].items():
-                    psat = do_iv_cuts(
-                        bl, sb, ch, d, data_dict, cut_increasing_psat, min_rn, max_rn)
+                    psat = do_iv_cuts(d, 6e-3, 9e-3)
 
                     if psat:
                         # key creation
                         if sb not in data_dict[bl].keys():
                             data_dict[bl][sb] = dict()
-                        if ch not in data_dict[bl][sb].keys():
-                            data_dict[bl][sb][ch] = {
-                                "temp" : [], "psat" : [], "R_n" : [], 
-                            }
-                        data_dict[bl][sb][ch]['temp'].append(temp_corr)
-                        data_dict[bl][sb][ch]['psat'].append(psat)
-                        data_dict[bl][sb][ch]["R_n"].append(d["R_n"])
+                        if 'i_tes' not in d.keys():
+                            d['i_tes'] = d['v_tes'] / d['R']
+                        d["Rfrac"] = d['R']/d['R_n']
+                        data_dict[bl][sb][ch] = d
 
-                        plt.plot(d['p_tes'],d['R'])
+                        ax.plot(d[x_axis],d[y_axis])
                         now_tot += 1
 
-        plt.title("BL %s: %s good ch" % (bl,now_tot))
-        plt.xlim(0,30)
-        plt.ylim(0,0.015)
+        ax.set_title("BL %s: %s TESs" % (bl, now_tot), fontsize=12)
+        ax.set(**plot_kwargs)
+        ax.grid(linestyle='--')
 
         tot += now_tot
     print(tot)
+
+    fig.supylabel(y_axis, fontsize=20)
+    fig.supxlabel(x_axis, fontsize=20)
+    plt.suptitle(plot_title, fontsize=20)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.95)
 
     if return_data:
         return data_dict
