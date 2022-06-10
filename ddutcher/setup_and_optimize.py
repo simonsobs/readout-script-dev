@@ -9,7 +9,7 @@ import os, sys
 import numpy as np
 import argparse
 from sodetlib.det_config import DetConfig
-import sodetlib.smurf_funcs.optimize_params as op
+from sodetlib.operations import uxm_setup as op
 from sodetlib import noise
 import logging
 
@@ -82,10 +82,9 @@ else:
     raise ValueError("Assembly must be either 'ufm' or 'umm'.")
 
 # power amplifiers
-#success = op.cryo_amp_check(S, cfg)
-#if not success:
-#    raise OSError("Health check failed")
-
+success = op.setup_amps(S, cfg)
+if not success:
+    raise OSError("Amps could not be powered.")
 
 # run the defs in this file
 uxm_optimize(

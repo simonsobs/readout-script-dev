@@ -7,7 +7,7 @@ import time
 import os, sys
 import numpy as np
 import scipy.signal as signal
-import sodetlib.smurf_funcs.optimize_params as op
+from sodetlib.operations import uxm_setup as op
 import sodetlib.util as su
 from uc_tuner import UCTuner
 import logging
@@ -290,9 +290,9 @@ if __name__ == "__main__":
         raise ValueError("Assembly must be either 'ufm' or 'umm'.")
 
     # power amplifiers
-    success = op.cryo_amp_check(S, cfg)
+    success = op.setup_amps(S, cfg)
     if not success:
-        raise OSError("Health check failed")
+        raise OSError("Amps could not be powered.")
 
     # run the def in this file
     uxm_optimize(

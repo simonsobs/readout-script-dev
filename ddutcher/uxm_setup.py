@@ -6,7 +6,7 @@ from scipy import signal
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import sodetlib.smurf_funcs.optimize_params as op
+from sodetlib.operations import uxm_setup as op
 from sodetlib import noise
 import logging
 
@@ -144,9 +144,9 @@ if __name__ == "__main__":
     S = cfg.get_smurf_control(dump_configs=True, make_logfile=(numeric_level != 10))
 
     # # power amplifiers
-    # success = op.cryo_amp_check(S, cfg)
-    # if not success:
-    #     raise OSError("Health check failed.")
+    success = op.setup_amps(S, cfg)
+    if not success:
+        raise OSError("Amps could not be powered.")
     # run the defs in this file
     uxm_setup(S=S, cfg=cfg, bands=args.bands, estimate_phase_delay=args.estimate_phase_delay)
     # take noise and plot histograms
