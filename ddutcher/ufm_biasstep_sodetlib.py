@@ -47,12 +47,12 @@ if not os.path.exists(out_fn):
 S.overbias_tes_all(
     bias_groups=bias_groups,
     overbias_wait=2,
-    tes_bias=20,
+    tes_bias=19,
     cool_wait=3,
     high_current_mode=False,
     overbias_voltage=12,
 )
-time.sleep(300)
+time.sleep(120)
 
 step_array = np.arange(bias_high, bias_low - 0.5, -0.5)
 #step_size = 0.01 
@@ -62,12 +62,12 @@ for bias_voltage_step in step_array:
     for bg in bias_groups:
         bias_array[bg] = bias_voltage
     S.set_tes_bias_bipolar_array(bias_array) 
-    time.sleep(120)
+    time.sleep(60)
 
     bsa = take_bias_steps(S, cfg)
 
     row = {}
-    row['bath_temp'] = f'{bath_temp}mK'
+    row['bath_temp'] = bath_temp
     row['bias_v'] = bias_voltage_step
     row['band'] = 'all'
     row['data_path'] = bsa.filepath

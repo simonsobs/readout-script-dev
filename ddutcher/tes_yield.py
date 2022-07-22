@@ -83,7 +83,7 @@ def tes_yield(S, target_bg, out_fn, start_time):
     for ind, bl in enumerate(target_bg):
         if bl not in all_data_IV.keys():
             all_data_IV[bl] = dict()
-        now = np.load(data[bl], allow_pickle=True).item()
+        now = np.load(data[ind], allow_pickle=True).item()
         now = now['data']
         for sb in now.keys():
             if len(now[sb].keys()) != 0:
@@ -133,11 +133,14 @@ def tes_yield(S, target_bg, out_fn, start_time):
                 target_v_bias.append(v_bias)
 
         med_target_v_bias = np.nanmedian(np.array(target_v_bias))
-        if med_target_v_bias not in operating_r[bl].keys():
-            med_target_v_bias = v_biases[
-                np.argmin(np.abs(v_biases-med_target_v_bias))
-            ]
-        target_vbias_dict[bl] = med_target_v_bias
+        try:
+            if med_target_v_bias not in operating_r[bl].keys():
+                med_target_v_bias = v_biases[
+                    np.nanargmin(np.abs(v_biases-med_target_v_bias))
+                ]
+            target_vbias_dict[bl] = np.round(med_target_v_bias, 3)
+        except:
+            target_vbias_dict[bl] = np.nan
 
     target_vbias_fp = os.path.join(S.output_dir, f"{start_time}_target_vbias.npy")
     np.save(target_vbias_fp, target_vbias_dict, allow_pickle=True)
@@ -148,6 +151,8 @@ def tes_yield(S, target_bg, out_fn, start_time):
     for ind, bl in enumerate(target_bg):
         ax_rv = axs[bl//2, bl%2*2]
         if np.isnan(target_vbias_dict[bl]):
+            continue
+        if len(operating_r[bl].keys()) == 0:
             continue
         count_num = 0
         for sb in all_data_IV[bl].keys():
@@ -166,9 +171,13 @@ def tes_yield(S, target_bg, out_fn, start_time):
         ax_rv.set_ylim([-0.001,0.012])
 
         ax_vb = axs[bl//2,bl%2*2+1]
-        h = ax_vb.hist(
-            operating_r[bl][target_vbias_dict[bl]], range=(0,1), bins=40
-        )
+        thisbl_vbias = target_vbias_dict[bl]
+        try:
+            to_plot = operating_r[bl][thisbl_vbias]
+        except KeyError as e:
+            print(thisbl_vbias, operating_r[bl].keys())
+            raise e
+        h = ax_vb.hist(to_plot, range=(0,1), bins=40)
         ax_vb.axvline(
             np.median(operating_r[bl][target_vbias_dict[bl]]),
             linestyle='--',
@@ -244,7 +253,7 @@ def tes_yield(S, target_bg, out_fn, start_time):
 def run(S, cfg, bias_high=20, bias_low=0, bias_step=0.025, bath_temp=100,
         current_mode='low', make_bgmap=False):
     start_time = S.get_timestamp()
-    target_bg = np.arange(12)
+    target_bg = range(12)
 
     out_fn = tickle_and_iv(
         S, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,

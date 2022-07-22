@@ -24,6 +24,7 @@ def uxm_optimize(
     S,
     cfg,
     bands=None,
+    opt_fracpp=False,
     low_noise_thresh=120,
     med_noise_thresh=150,
     high_noise_thresh=250,
@@ -104,14 +105,18 @@ def uxm_optimize(
         S.run_serial_gradient_descent(opt_band)
         S.run_serial_eta_scan(opt_band)
         logger.info(f"running tracking setup")
-        n_phi0 = cfg.dev.exp.get("nphi0", 5)
-        optimize_fracpp(S, cfg, bands=opt_band, n_phi0=n_phi0, update_cfg=True)
-        # tk = su.get_tracking_kwargs(
-        #     S, cfg, opt_band, kwargs={'meas_lms_freq':False}
-        # )
-        # tk['make_plot'] = True
-        # tk['channel'] = S.which_on(opt_band)[::10]
-        # ret = S.tracking_setup(opt_band, **tk)
+
+        if opt_fracpp:
+            n_phi0 = cfg.dev.exp.get("nphi0", 5)
+            optimize_fracpp(S, cfg, bands=opt_band, n_phi0=n_phi0, update_cfg=True)
+        else:
+            tk = su.get_tracking_kwargs(
+                S, cfg, opt_band, kwargs={'meas_lms_freq':False}
+            )
+            tk['make_plot'] = True
+            tk['channel'] = S.which_on(opt_band)[::10]
+            ret = S.tracking_setup(opt_band, **tk)
+
 
         logger.info(f"checking tracking")
         S.check_lock(
@@ -131,17 +136,17 @@ def uxm_optimize(
         logger.info(f"Noise levels: {uctuner.wl_list}")
         logger.info(f"Number of active channels: {uctuner.wl_length}")
 
-        if uctuner.wl_median > high_noise_thresh:
+        if uctuner.wl_median >= high_noise_thresh:
             raise ValueError(
                 f"wl_median={uctuner.wl_median} is to high. "
                 + "Something might be wrong, power level might be really off, please investigate"
             )
 
-        elif uctuner.wl_median < low_noise_thresh:
+        elif uctuner.wl_median <= low_noise_thresh:
             # Do one fine tune and stop.
             status_tune(logger, uctuner, "fine")
 
-        elif low_noise_thresh < uctuner.wl_median < med_noise_thresh:
+        elif low_noise_thresh < uctuner.wl_median <= med_noise_thresh:
             # Do a rough tune followed by a fine tune.
             status_tune(logger, uctuner, "rough")
 
@@ -250,6 +255,11 @@ if __name__ == "__main__":
         help="Assembly type, ufm or umm. Determines the relevant noise thresholds.",
     )
     parser.add_argument(
+        "--optimize-fracpp",
+        default=False,
+        action='store_true',
+    )
+    parser.add_argument(
         "--bands",
         type=int,
         nargs="+",
@@ -299,6 +309,7 @@ if __name__ == "__main__":
         S=S,
         cfg=cfg,
         bands=args.bands,
+        opt_fracpp=args.optimize_fracpp,
         low_noise_thresh=low_noise_thresh,
         med_noise_thresh=med_noise_thresh,
         high_noise_thresh=high_noise_thresh,

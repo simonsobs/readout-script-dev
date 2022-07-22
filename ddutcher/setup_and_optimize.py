@@ -44,6 +44,11 @@ parser.add_argument(
 
 # optional arguments
 parser.add_argument(
+    "--optimize-fracpp",
+    default=False,
+    action="store_true",
+)
+parser.add_argument(
     "--acq-time",
     type=float,
     default=30.0,
@@ -91,6 +96,7 @@ uxm_optimize(
     S=S,
     cfg=cfg,
     bands=args.bands,
+    opt_fracpp=args.optimize_fracpp,
     low_noise_thresh=low_noise_thresh,
     med_noise_thresh=med_noise_thresh,
     high_noise_thresh=high_noise_thresh,

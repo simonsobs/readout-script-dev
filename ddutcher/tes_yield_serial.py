@@ -47,26 +47,25 @@ def tickle_and_iv(
     else:
         high_current_mode = False
 
-    for bg in target_bg:
-        row = {}
-        row['bath_temp'] = str(bath_temp)
-        row['bias_line'] = bg
-        row['band'] = 'all'
+    row = {}
+    row['bath_temp'] = str(bath_temp)
+    row['bias_line'] = 'all'
+    row['band'] = 'all'
 
-        logger.info(f'Taking IV on bias line {bg}, all smurf bands.')
+    logger.info(f'Taking IV on bias lines serially, all smurf bands.')
 
-        iva = take_iv(
-            S, cfg,
-            bias_groups=[bg], wait_time=0.01, bias_high=bias_high,
-            overbias_wait=2, bias_low=bias_low, bias_step=bias_step,
-            overbias_voltage=12, cool_wait=30, high_current_mode=high_current_mode,
-            show_plots=False,
-        )
-        dat_file = iva.filepath
-        row['data_path'] = dat_file
-        with open(out_fn, 'a', newline = '') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writerow(row)
+    iva = take_iv(
+        S, cfg,
+        bias_groups=target_bg, wait_time=0.01, bias_high=bias_high,
+        overbias_wait=2, bias_low=bias_low, bias_step=bias_step,
+        overbias_voltage=12, cool_wait=30, high_current_mode=high_current_mode,
+        show_plots=False,run_serially=True, serial_wait_time=30,
+    )
+    dat_file = iva.filepath
+    row['data_path'] = dat_file
+    with open(out_fn, 'a', newline = '') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerow(row)
 
     return out_fn
 
@@ -79,11 +78,10 @@ def tes_yield(S, target_bg, out_fn, start_time):
     
     good_chans = 0
     all_data_IV = dict()
-
+    now = np.load(data[0], allow_pickle=True).item()
     for i, bl in enumerate(target_bg):
         if bl not in all_data_IV.keys():
             all_data_IV[bl] = dict()
-        now = np.load(data[i], allow_pickle=True).item()
 
         idx = now['bgmap'] == bl
         for ind in range(np.sum(idx)):
@@ -167,6 +165,8 @@ def tes_yield(S, target_bg, out_fn, start_time):
         ax_rv = axs[bl//2, bl%2*2]
         if np.isnan(target_vbias_dict[bl]):
             continue
+        if len(operating_r[bl].keys()) == 0:
+            continue
         count_num = 0
         for sb in all_data_IV[bl].keys():
             for ch,d in all_data_IV[bl][sb].items():
@@ -185,11 +185,14 @@ def tes_yield(S, target_bg, out_fn, start_time):
 
         ax_vb = axs[bl//2,bl%2*2+1]
         thisbl_vbias = target_vbias_dict[bl]
-        h = ax_vb.hist(
-            operating_r[bl][thisbl_vbias], range=(0,1), bins=40
-        )
+        try:
+            to_plot = operating_r[bl][thisbl_vbias]
+        except KeyError as e:
+            print(thisbl_vbias, operating_r[bl].keys())
+            raise e
+        h = ax_vb.hist(to_plot, range=(0,1), bins=40)
         ax_vb.axvline(
-            np.median(operating_r[bl][target_vbias_dict[bl]]),
+            np.median(to_plot),
             linestyle='--',
             color='gray',
         )
@@ -263,7 +266,7 @@ def tes_yield(S, target_bg, out_fn, start_time):
 def run(S, cfg, bias_high=20, bias_low=0, bias_step=0.025, bath_temp=100,
         current_mode='low', make_bgmap=False):
     start_time = S.get_timestamp()
-    target_bg = np.arange(12)
+    target_bg = range(12)
 
     out_fn = tickle_and_iv(
         S, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,

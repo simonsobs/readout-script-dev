@@ -65,9 +65,6 @@ for bg in bias_groups:
     bias_array[bg] = bias_v
 S.set_tes_bias_bipolar_array(bias_array)
 time.sleep(10)
-# datafile_self = S.stream_data_on()
-# time.sleep(20)
-# S.stream_data_off()
 
 #take 30s timestream for noise
 sid = sdl.take_g3_data(S, 30)

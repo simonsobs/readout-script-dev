@@ -110,10 +110,8 @@ if __name__ == "__main__":
         help="The SMuRF bands to target. Will default to the bands "
         + "listed in the pysmurf configuration file."
     )
-
     parser.add_argument(
         "--estimate-phase-delay",
-        type=bool,
         action='store_true',
         default=False,
     )
