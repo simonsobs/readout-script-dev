@@ -42,9 +42,9 @@ S = cfg.get_smurf_control()
 
 
 fieldnames = ['bath_temp', 'bias_v', 'band', 'data_path','step_size']
-with open(out_fn, 'w', newline = '') as csvfile:
-    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-    writer.writeheader()
+# with open(out_fn, 'w', newline = '') as csvfile:
+#     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+#     writer.writeheader()
 
 
 
@@ -57,7 +57,7 @@ for bias_voltage_step in step_array:
 
     bias_voltage = bias_voltage_step
     S.set_tes_bias_bipolar_array([bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,0.,0. ,0. ]) 
-    time.sleep(240) 
+    time.sleep(120) 
 
     dat_path = S.stream_data_on()
     for k in [0,1,2,3,4]:
@@ -69,7 +69,7 @@ for bias_voltage_step in step_array:
         time.sleep(2)
     S.stream_data_off()
     row = {}
-    row['bath_temp'] = '100mK'
+    row['bath_temp'] = bath_temp
     row['bias_v'] = bias_voltage_step
     row['band'] = 'all'
     row['data_path'] = dat_path

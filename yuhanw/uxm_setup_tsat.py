@@ -13,7 +13,7 @@ import time
 from sodetlib.det_config import DetConfig
 
 
-bands = [0,1,2,3,4,5,6,7]
+bands = [0,1,2,3]
 slot_num = 4
 
 cfg = DetConfig()
@@ -97,7 +97,7 @@ for band, channel in zip(bands, channels):
 
 fmin=5
 fmax=50
-
+detrend='constant'
 # plot the band channel data
 fig, axs = plt.subplots(4, 2, figsize=(12, 24), gridspec_kw={'width_ratios': [2, 2]},dpi=50)
 for band in sorted(stream_by_band_by_channel.keys()):
@@ -108,7 +108,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
         stream_single_channel = stream_single_band[channel]
 
 
-        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend)
+        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend,nperseg=2**12)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])
@@ -135,7 +135,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
     for channel in sorted(stream_single_band.keys()):
         stream_single_channel = stream_single_band[channel]
         f, Pxx = signal.welch(stream_single_channel,
-                fs=fs, detrend=detrend)
+                fs=fs, detrend=detrend,nperseg=2**12)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])

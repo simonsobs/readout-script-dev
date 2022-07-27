@@ -23,7 +23,7 @@ import scipy.signal as signal
 
 
 
-band = 4
+band = 0
 slot_num = 3
 
 cfg = DetConfig()
@@ -382,7 +382,7 @@ if wl_median > 60 and wl_median < 120:
 
     if estimate_att > 26:
         print("adjusting tune power and uc att")
-        new_tune_power = current_tune_power + 2
+        new_tune_power = current_tune_power - 2
         adjusted_uc_att = current_uc_att - 11
         S.set_att_uc(band, adjusted_uc_att)
         S.find_freq(band, tone_power=new_tune_power, make_plot=True)
@@ -470,7 +470,7 @@ if wl_median > 120 and wl_median < 150:
 
         if estimate_att > 26:
             print("adjusting tune power and uc att")
-            new_tune_power = current_tune_power + 2
+            new_tune_power = current_tune_power - 2
             adjusted_uc_att = current_uc_att - 11
             S.set_att_uc(band, adjusted_uc_att)
             S.find_freq(band, tone_power=new_tune_power, make_plot=True)

@@ -1,6 +1,7 @@
 '''
 Code written in Oct 2021 by Yuhan Wang
-only suitable for UFMs when TESes are in SC stage
+only suitable for UFMs when TESes are in normal stage
+does not apply bias voltage, use when Tbath is high
 instead of fitting to noise model, this takes median noise from 5Hz to 50Hz
 different noise levels here are based on phase 2 noise target and noise model after considering johnson noise at 100mK
 '''
@@ -23,8 +24,8 @@ import scipy.signal as signal
 
 
 
-band = 1
-slot_num = 4
+band = 0
+slot_num = 5
 
 cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)
@@ -51,12 +52,12 @@ print("band {} uc_att {}".format(band, S.get_att_uc(band)))
 S.amplitude_scale[band] = cfg.dev.bands[band]["drive"]
 print("band {} tone power {}".format(band, S.amplitude_scale[band]))
 
-# print("estimating phase delay")
-# S.estimate_phase_delay(band)
-# print("setting synthesis scale")
-# # hard coding it for the current fw
-# S.set_synthesis_scale(band, 1)
-# print("running find freq")
+print("estimating phase delay")
+S.estimate_phase_delay(band)
+print("setting synthesis scale")
+# hard coding it for the current fw
+S.set_synthesis_scale(band, 1)
+print("running find freq")
 S.find_freq(band, tone_power=cfg.dev.bands[band]["drive"], make_plot=True)
 print("running setup notches")
 S.setup_notches(
@@ -93,6 +94,7 @@ S.check_lock(
     lms_gain=cfg.dev.bands[band]["lms_gain"],
 )
 
+
 print("taking 20s timestream")
 stream_time = 20
 
@@ -114,7 +116,7 @@ bands, channels = np.where(mask != -1)
 phase *= S.pA_per_phi0 / (2.0 * np.pi)  # uA
 sample_nums = np.arange(len(phase[0]))
 fs = 200
-nperseg=2**16
+nperseg=2**12
 detrend='constant'
 t_array = sample_nums / fs
 for c, (b, ch) in enumerate(zip(bands, channels)):
@@ -133,14 +135,13 @@ for c, (b, ch) in enumerate(zip(bands, channels)):
 
 
 
-
 noise_param = wl_list_temp
 
 wl_median = np.median(noise_param)
 wl_length = len(noise_param)
 channel_length = len(noise_param)
 noise_floors = np.median(noise_param)
-
+print('wl_median')
 
 def rough_tune(current_uc_att, current_tune_power, band,slot_num):
 
@@ -188,7 +189,7 @@ def rough_tune(current_uc_att, current_tune_power, band,slot_num):
 
         fmin=5
         fmax=50
-        nperseg=2**16
+        nperseg=2**12
         detrend='constant'
         wl_list_temp = []
         timestamp, phase, mask, tes_bias = S.read_stream_data(dat_path,
@@ -225,7 +226,6 @@ def rough_tune(current_uc_att, current_tune_power, band,slot_num):
     lowest_wl_index = wl_list.index(min(wl_list))
     estimate_att = attens[lowest_wl_index]
     wl_median = wl_list[lowest_wl_index]
-    print(wl_list)
     print(
         "lowest WL: {} with {} channels".format(
             wl_median, channel_length
@@ -281,7 +281,7 @@ def fine_tune(current_uc_att, current_tune_power, band,slot_num):
         
         fmin=5
         fmax=50
-        nperseg=2**16
+        nperseg=2**12
         detrend='constant'
         wl_list_temp = []
         timestamp, phase, mask, tes_bias = S.read_stream_data(dat_path,
@@ -328,7 +328,7 @@ def fine_tune(current_uc_att, current_tune_power, band,slot_num):
     return estimate_att, current_tune_power, lowest_wl_index, wl_median
 
 
-if wl_median > 100:
+if wl_median > 150:
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
     )
@@ -337,7 +337,7 @@ if wl_median > 100:
     )
 
 
-if wl_median < 50:
+if wl_median < 60:
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
     )
@@ -347,13 +347,13 @@ if wl_median < 50:
     current_tune_power = S.amplitude_scale[band]
 
     estimate_att, current_tune_power, lowest_wl_index, wl_median = fine_tune(
-        current_uc_att, current_tune_power, band,slot_num
+        current_uc_att, current_tune_power, band, slot_num
     )
 
     print("achieved at uc att {} drive {}".format(estimate_att, current_tune_power))
 
 
-if wl_median > 50 and wl_median < 80:
+if wl_median > 60 and wl_median < 120:
 
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
@@ -363,33 +363,33 @@ if wl_median > 50 and wl_median < 80:
     current_uc_att = S.get_att_uc(band)
     current_tune_power = S.amplitude_scale[band]
 
-    estimate_att, current_tune_power, lowest_wl_index,wl_median = fine_tune(
+    estimate_att, current_tune_power, lowest_wl_index,wl_median = rough_tune(
         current_uc_att, current_tune_power, band,slot_num
     )
 
-    # if estimate_att < 16:
-    #     print("adjusting tune power and uc att")
-    #     new_tune_power = current_tune_power + 2
-    #     adjusted_uc_att = current_uc_att + 11
-    #     S.set_att_uc(band, adjusted_uc_att)
-    #     S.find_freq(band, tone_power=new_tune_power, make_plot=True)
-    #     S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
-    #     S.run_serial_gradient_descent(band)
-    #     S.run_serial_eta_scan(band)
-    #     current_uc_att = adjusted_uc_att
-    #     current_tune_power = new_tune_power
+    if estimate_att < 16:
+        print("adjusting tune power and uc att")
+        new_tune_power = current_tune_power + 2
+        adjusted_uc_att = current_uc_att + 11
+        S.set_att_uc(band, adjusted_uc_att)
+        S.find_freq(band, tone_power=new_tune_power, make_plot=True)
+        S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
+        S.run_serial_gradient_descent(band)
+        S.run_serial_eta_scan(band)
+        current_uc_att = adjusted_uc_att
+        current_tune_power = new_tune_power
 
-    # if estimate_att > 26:
-    #     print("adjusting tune power and uc att")
-    #     new_tune_power = current_tune_power + 2
-    #     adjusted_uc_att = current_uc_att - 11
-    #     S.set_att_uc(band, adjusted_uc_att)
-    #     S.find_freq(band, tone_power=new_tune_power, make_plot=True)
-    #     S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
-    #     S.run_serial_gradient_descent(band)
-    #     S.run_serial_eta_scan(band)
-    #     current_uc_att = adjusted_uc_att
-    #     current_tune_power = new_tune_power
+    if estimate_att > 26:
+        print("adjusting tune power and uc att")
+        new_tune_power = current_tune_power - 2
+        adjusted_uc_att = current_uc_att - 11
+        S.set_att_uc(band, adjusted_uc_att)
+        S.find_freq(band, tone_power=new_tune_power, make_plot=True)
+        S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
+        S.run_serial_gradient_descent(band)
+        S.run_serial_eta_scan(band)
+        current_uc_att = adjusted_uc_att
+        current_tune_power = new_tune_power
 
     estimate_att, current_tune_power, lowest_wl_index,wl_median = fine_tune(
         current_uc_att, current_tune_power, band,slot_num
@@ -406,7 +406,7 @@ if wl_median > 50 and wl_median < 80:
     print("achieved at uc att {} drive {}".format(estimate_att, current_tune_power))
 
 
-if wl_median > 80 and wl_median < 100:
+if wl_median > 120 and wl_median < 150:
 
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
@@ -420,7 +420,7 @@ if wl_median > 80 and wl_median < 100:
         current_uc_att, current_tune_power, band,slot_num
     )
 
-    if wl_median < 50:
+    if wl_median < 60:
         print(
             "WL: {} with {} channels out of {}".format(
                 wl_median, wl_length, channel_length
@@ -435,9 +435,14 @@ if wl_median > 80 and wl_median < 100:
             current_uc_att, current_tune_power, band,slot_num
         )
 
+
+
+
+
+
         print("achieved at uc att {} drive {}".format(estimate_att, current_tune_power))
 
-    if wl_median > 50:
+    if wl_median > 60:
 
         print(
             "WL: {} with {} channels out of {}".format(
@@ -449,10 +454,6 @@ if wl_median > 80 and wl_median < 100:
         current_uc_att = S.get_att_uc(band)
         current_tune_power = S.amplitude_scale[band]
 
-        estimate_att, current_tune_power, lowest_wl_index,wl_median = rough_tune(
-            current_uc_att, current_tune_power, band,slot_num
-        )
-        step1_index = lowest_wl_index
 
         if estimate_att < 16:
             print("adjusting tune power and uc att")
@@ -468,7 +469,7 @@ if wl_median > 80 and wl_median < 100:
 
         if estimate_att > 26:
             print("adjusting tune power and uc att")
-            new_tune_power = current_tune_power + 2
+            new_tune_power = current_tune_power - 2
             adjusted_uc_att = current_uc_att - 11
             S.set_att_uc(band, adjusted_uc_att)
             S.find_freq(band, tone_power=new_tune_power, make_plot=True)
@@ -477,6 +478,35 @@ if wl_median > 80 and wl_median < 100:
             S.run_serial_eta_scan(band)
             current_uc_att = adjusted_uc_att
             current_tune_power = new_tune_power
+
+        estimate_att, current_tune_power, lowest_wl_index,wl_median = rough_tune(
+            current_uc_att, current_tune_power, band,slot_num
+        )
+        step1_index = lowest_wl_index
+
+        # if estimate_att < 16:
+        #     print("adjusting tune power and uc att")
+        #     new_tune_power = current_tune_power + 2
+        #     adjusted_uc_att = current_uc_att + 12
+        #     S.set_att_uc(band, adjusted_uc_att)
+        #     S.find_freq(band, tone_power=new_tune_power, make_plot=True)
+        #     S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
+        #     S.run_serial_gradient_descent(band)
+        #     S.run_serial_eta_scan(band)
+        #     current_uc_att = adjusted_uc_att
+        #     current_tune_power = new_tune_power
+
+        # if estimate_att > 26:
+        #     print("adjusting tune power and uc att")
+        #     new_tune_power = current_tune_power + 2
+        #     adjusted_uc_att = current_uc_att - 11
+        #     S.set_att_uc(band, adjusted_uc_att)
+        #     S.find_freq(band, tone_power=new_tune_power, make_plot=True)
+        #     S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
+        #     S.run_serial_gradient_descent(band)
+        #     S.run_serial_eta_scan(band)
+        #     current_uc_att = adjusted_uc_att
+        #     current_tune_power = new_tune_power
 
         estimate_att, current_tune_power, lowest_wl_index, wl_median= fine_tune(
             current_uc_att, current_tune_power, band,slot_num

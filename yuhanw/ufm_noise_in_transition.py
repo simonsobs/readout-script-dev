@@ -49,15 +49,14 @@ with open(out_fn, 'w', newline = '') as csvfile:
 
 
 S.overbias_tes_all(bias_groups = [0,1,2,3,4,5,6,7,8,9,10,11], overbias_wait=1, tes_bias= 12, cool_wait= 3, high_current_mode=False, overbias_voltage= 8)
-time.sleep(300)
+time.sleep(60)
 
-step_array = np.arange(bias_high,0,-1)
-step_size = 0.01 
+step_array = np.arange(bias_high,0,-0.5)
 for bias_voltage_step in step_array:
 
     bias_voltage = bias_voltage_step
     S.set_tes_bias_bipolar_array([bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,bias_voltage,0.,0. ,0. ]) 
-    time.sleep(120) 
+    time.sleep(300) 
 
     dat_path = S.stream_data_on()
     for k in [0,1,2,3,4,5,6,7,8,9,10,11]:

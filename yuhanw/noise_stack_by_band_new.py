@@ -1,3 +1,8 @@
+'''
+Code written in Oct 2021 by Yuhan Wang
+taking short time stream and report noise property by band
+'''
+
 import matplotlib
 matplotlib.use('Agg')
 
@@ -17,10 +22,13 @@ from scipy import signal
 import os
 import time
 
+import warnings
+warnings.filterwarnings("ignore")
+
 
 fs = S.get_sample_frequency()
 # hard coded (for now) variables
-stream_time = 60
+stream_time = 20
 
 # non blocking statement to start time stream and return the dat filename
 dat_path = S.stream_data_on()
@@ -36,7 +44,7 @@ print(f'loaded the .dat file at: {dat_path}')
 
 # hard coded variables
 bands, channels = np.where(mask != -1)
-phase *= S.pA_per_phi0 / (2.0 * np.pi)  # uA
+phase *= S.pA_per_phi0 / (2.0 * np.pi)  # pA
 sample_nums = np.arange(len(phase[0]))
 t_array = sample_nums / fs
 
@@ -63,7 +71,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
         stream_single_channel = stream_single_band[channel]
 
 
-        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend,nperseg=2**12)
+        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend,nperseg=2**16)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])
@@ -90,7 +98,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
     for channel in sorted(stream_single_band.keys()):
         stream_single_channel = stream_single_band[channel]
         f, Pxx = signal.welch(stream_single_channel,
-                fs=fs, detrend=detrend,nperseg=2**12)
+                fs=fs, detrend=detrend,nperseg=2**16)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])
@@ -106,8 +114,13 @@ for band in sorted(stream_by_band_by_channel.keys()):
     ax_this_band.grid()
     ax_this_band.axvline(1.4,linestyle='--', alpha=0.6,label = '1.4 Hz',color = 'C1')
     ax_this_band.axvline(60,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C2')
+    # ax_this_band.axvline(3.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
+    # ax_this_band.axvline(4.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
+    # ax_this_band.axvline(5.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
+    # ax_this_band.axvline(6.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
+    # ax_this_band.axvline(7.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
     ax_this_band.set_title(f'band {band} yield {band_yield}')
-    ax_this_band.set_ylim([1,5e3])
+    ax_this_band.set_ylim([1,1e4])
 
 
 

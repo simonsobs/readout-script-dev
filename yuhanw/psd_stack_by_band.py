@@ -15,6 +15,8 @@ import time
 import csv
 import scipy.signal as signal
 
+import warnings
+warnings.filterwarnings("ignore")
 
 start_time=S.get_timestamp()
 fs = S.get_sample_frequency()
@@ -66,7 +68,7 @@ print(f'Saving plot to {os.path.join(S.plot_dir, save_name)}')
 plt.savefig(os.path.join(S.plot_dir, save_name))
 # plt.show()
 
-nperseg=2**12
+nperseg=2**16
 detrend='constant'
 # plot the PSD channel data
 fig, axs = plt.subplots(4, 2, figsize=(12, 24), gridspec_kw={'width_ratios': [2, 2]})
@@ -79,7 +81,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
                 fs=fs, detrend=detrend)
         Pxx = np.sqrt(Pxx)
         
-        ax_this_band.loglog(f, Pxx, color='C0', alpha=0.002)
+        ax_this_band.loglog(f, Pxx, color='C0', alpha=0.05)
     band_yield = len(stream_single_band)
     ax_this_band.set_xlabel('Frequency [Hz]')
     ax_this_band.set_ylabel('Amp [pA/rtHz]')
@@ -104,7 +106,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
                 fs=fs, detrend=detrend)
         Pxx = np.sqrt(Pxx)
         
-        ax .loglog(f, Pxx, color='C0', alpha=0.002)
+        ax .loglog(f, Pxx, color='C0', alpha=0.05)
     band_yield = len(stream_single_band)
     ax.axvline(1.4,linestyle='--', alpha=0.3,label = '1.4 Hz',color = 'C1')
     ax.axvline(60,linestyle='--', alpha=0.3,label = '60 Hz',color = 'C2')
@@ -112,7 +114,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
     ax.set_ylabel('Amp [pA/rtHz]')
     ax.grid()
     ax.set_title(f'band {band} yield {band_yield}')
-    ax.set_ylim([1,1e4])
+    ax.set_ylim([1,1e8])
     ax.legend(loc=1)
 
     save_name = f'{start_time}_band_psd_stack_band{band}.png'

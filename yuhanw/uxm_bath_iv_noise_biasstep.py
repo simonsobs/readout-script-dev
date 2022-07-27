@@ -127,7 +127,7 @@ with open(out_fn, 'a', newline = '') as csvfile:
 S.set_rtm_arb_waveform_enable(0)
 S.set_filter_disable(0)
 S.set_downsample_factor(20)
-S.overbias_tes_all(bias_groups = [0,1,2,3,4,5,6,7,8,9,10,11], overbias_wait=1, tes_bias= 5, cool_wait= 3, high_current_mode=False, overbias_voltage= 5)
+S.overbias_tes_all(bias_groups = [0,1,2,3,4,5,6,7,8,9,10,11], overbias_wait=1, tes_bias= 15, cool_wait= 3, high_current_mode=False, overbias_voltage= 5)
 ## sleep 6 mins to get stablized 
 for i in range(36):
     time.sleep(10)

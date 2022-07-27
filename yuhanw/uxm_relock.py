@@ -1,6 +1,9 @@
 '''
 Code written in Oct 2021 by Yuhan Wang
 relock UFM with a given tune file
+chosen nperseg to be 2**12 based on the sample rate 200Hz and 20s timestream also script run time
+
+Nov decided to use nperseg 2**16 and disable warning
 '''
 
 
@@ -17,8 +20,9 @@ import os
 import time
 
 from sodetlib.det_config import DetConfig
+warnings.filterwarnings("ignore")
 
-fav_tune_files = '/data/smurf_data/tune/1634501972_tune.npy'
+fav_tune_files = '/data/smurf_data/tune/1655932343_tune.npy'
 bands = [0,1,2,3,4,5,6,7]
 slot_num = 2
 
@@ -41,32 +45,35 @@ S.load_tune(fav_tune_files)
 
 
 for band in bands:
-	print('setting up band {}'.format(band))
+    print('setting up band {}'.format(band))
 
-	S.set_att_dc(band,cfg.dev.bands[band]['dc_att'])
-	print('band {} dc_att {}'.format(band,S.get_att_dc(band)))
+    S.set_att_dc(band,cfg.dev.bands[band]['dc_att'])
+    print('band {} dc_att {}'.format(band,S.get_att_dc(band)))
 
-	S.set_att_uc(band,cfg.dev.bands[band]['uc_att'])
-	print('band {} uc_att {}'.format(band,S.get_att_uc(band)))
+    S.set_att_uc(band,cfg.dev.bands[band]['uc_att'])
+    print('band {} uc_att {}'.format(band,S.get_att_uc(band)))
 
-	S.amplitude_scale[band] = cfg.dev.bands[band]['drive']
-	print('band {} tone power {}'.format(band,S.amplitude_scale[band] ))
+    S.amplitude_scale[band] = cfg.dev.bands[band]['tone_power']
+    print('band {} tone power {}'.format(band,S.amplitude_scale[band] ))
 
-	print('setting synthesis scale')
-	# hard coding it for the current fw
-	S.set_synthesis_scale(band,1)
+    print('setting synthesis scale')
+    # hard coding it for the current fw
+    S.set_synthesis_scale(band,1)
 
-	print('running relock')
-	S.relock(band,tone_power=cfg.dev.bands[band]['drive'])
-	
-	S.run_serial_gradient_descent(band);
-	S.run_serial_eta_scan(band);
-	
-	print('running tracking setup')
-	S.set_feedback_enable(band,1) 
-	S.tracking_setup(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], make_plot=False, save_plot=False, show_plot=False, channel=S.which_on(band), nsamp=2**18, lms_freq_hz=cfg.dev.bands[band]["lms_freq_hz"], meas_lms_freq=cfg.dev.bands[band]["meas_lms_freq"],feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
-	print('checking tracking')
-	S.check_lock(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], lms_freq_hz=cfg.dev.bands[band]["lms_freq_hz"], feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
+    print('running relock')
+    S.relock(band,tone_power=cfg.dev.bands[band]['tone_power'])
+    
+    S.run_serial_gradient_descent(band);
+    S.run_serial_eta_scan(band);
+    
+    print('running tracking setup')
+    S.set_feedback_enable(band,1) 
+    S.tracking_setup(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], make_plot=False, save_plot=False, show_plot=False, channel=S.which_on(band), nsamp=2**18, lms_freq_hz=None, # cfg.dev.bands[band]["lms_freq_hz"],
+                     meas_lms_freq=True,#cfg.dev.bands[band]["meas_lms_freq"],
+                     feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
+    print('checking tracking')
+    S.check_lock(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], lms_freq_hz=None,#cfg.dev.bands[band]['lms_freq_hz'],
+                 feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
 
 print('taking 20s timestream')
 
@@ -116,7 +123,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
         stream_single_channel = stream_single_band[channel]
 
 
-        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend,nperseg=2**12)
+        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend,nperseg=2**16)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])
@@ -143,7 +150,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
     for channel in sorted(stream_single_band.keys()):
         stream_single_channel = stream_single_band[channel]
         f, Pxx = signal.welch(stream_single_channel,
-                fs=fs, detrend=detrend,nperseg=2**12)
+                fs=fs, detrend=detrend,nperseg=2**16)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])

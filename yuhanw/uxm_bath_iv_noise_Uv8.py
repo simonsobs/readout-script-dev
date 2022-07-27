@@ -97,6 +97,28 @@ for bias_gp in [0,1,2,3,4,5,6,7,8,9,10,11]:
 
 
 
+for bias_gp in [0,1,2,3,4,5,6,7,8,9,10,11]:
+    row = {}
+    row['bath_temp'] = bath_temp
+    row['bias_line'] = bias_gp
+    row['band'] = 'all'
+    row['bias_voltage'] = 'high current IV 5 to 0'
+    row['type'] = 'IV'
+    print(f'Taking IV on bias line {bias_gp}, all band')
+      
+
+    row['data_path'] = S.run_iv(bias_groups = [bias_gp], wait_time=0.001, bias_high=5, bias_low=0, bias_step = 0.025, overbias_voltage=6, cool_wait=0, high_current_mode=True, make_plot=False, save_plot=True, cool_voltage = 5)
+ 
+      
+    with open(out_fn, 'a', newline = '') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerow(row)
+
+    time.sleep(6)
+
+
+
+
 
 
 

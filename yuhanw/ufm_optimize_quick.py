@@ -23,7 +23,7 @@ import scipy.signal as signal
 
 
 
-band = 4
+band = 0
 slot_num = 4
 
 cfg = DetConfig()
@@ -48,7 +48,7 @@ print("band {} dc_att {}".format(band, S.get_att_dc(band)))
 S.set_att_uc(band, cfg.dev.bands[band]["uc_att"])
 print("band {} uc_att {}".format(band, S.get_att_uc(band)))
 
-S.amplitude_scale[band] = cfg.dev.bands[band]["drive"]
+S.amplitude_scale[band] = cfg.dev.bands[band]["tone_power"]
 print("band {} tone power {}".format(band, S.amplitude_scale[band]))
 
 print("estimating phase delay")
@@ -57,10 +57,10 @@ print("setting synthesis scale")
 # hard coding it for the current fw
 S.set_synthesis_scale(band, 1)
 print("running find freq")
-S.find_freq(band, tone_power=cfg.dev.bands[band]["drive"], make_plot=True)
+S.find_freq(band, tone_power=cfg.dev.bands[band]["tone_power"], make_plot=True)
 print("running setup notches")
 S.setup_notches(
-    band, tone_power=cfg.dev.bands[band]["drive"], new_master_assignment=True
+    band, tone_power=cfg.dev.bands[band]["tone_power"], new_master_assignment=True
 )
 print("running serial gradient descent and eta scan")
 S.run_serial_gradient_descent(band)
@@ -114,7 +114,7 @@ bands, channels = np.where(mask != -1)
 phase *= S.pA_per_phi0 / (2.0 * np.pi)  # uA
 sample_nums = np.arange(len(phase[0]))
 fs = 200
-nperseg=2**12
+nperseg=2**16
 detrend='constant'
 t_array = sample_nums / fs
 for c, (b, ch) in enumerate(zip(bands, channels)):
@@ -188,7 +188,7 @@ def rough_tune(current_uc_att, current_tune_power, band,slot_num):
 
         fmin=5
         fmax=50
-        nperseg=2**12
+        nperseg=2**16
         detrend='constant'
         wl_list_temp = []
         timestamp, phase, mask, tes_bias = S.read_stream_data(dat_path,
@@ -280,7 +280,7 @@ def fine_tune(current_uc_att, current_tune_power, band,slot_num):
         
         fmin=5
         fmax=50
-        nperseg=2**12
+        nperseg=2**16
         detrend='constant'
         wl_list_temp = []
         timestamp, phase, mask, tes_bias = S.read_stream_data(dat_path,
@@ -366,29 +366,29 @@ if wl_median > 120 and wl_median < 150:
         current_uc_att, current_tune_power, band,slot_num
     )
 
-    if estimate_att < 16:
-        print("adjusting tune power and uc att")
-        new_tune_power = current_tune_power + 2
-        adjusted_uc_att = current_uc_att + 11
-        S.set_att_uc(band, adjusted_uc_att)
-        S.find_freq(band, tone_power=new_tune_power, make_plot=True)
-        S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
-        S.run_serial_gradient_descent(band)
-        S.run_serial_eta_scan(band)
-        current_uc_att = adjusted_uc_att
-        current_tune_power = new_tune_power
+    # if estimate_att < 16:
+    #     print("adjusting tune power and uc att")
+    #     new_tune_power = current_tune_power + 2
+    #     adjusted_uc_att = current_uc_att + 11
+    #     S.set_att_uc(band, adjusted_uc_att)
+    #     S.find_freq(band, tone_power=new_tune_power, make_plot=True)
+    #     S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
+    #     S.run_serial_gradient_descent(band)
+    #     S.run_serial_eta_scan(band)
+    #     current_uc_att = adjusted_uc_att
+    #     current_tune_power = new_tune_power
 
-    if estimate_att > 26:
-        print("adjusting tune power and uc att")
-        new_tune_power = current_tune_power + 2
-        adjusted_uc_att = current_uc_att - 11
-        S.set_att_uc(band, adjusted_uc_att)
-        S.find_freq(band, tone_power=new_tune_power, make_plot=True)
-        S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
-        S.run_serial_gradient_descent(band)
-        S.run_serial_eta_scan(band)
-        current_uc_att = adjusted_uc_att
-        current_tune_power = new_tune_power
+    # if estimate_att > 26:
+    #     print("adjusting tune power and uc att")
+    #     new_tune_power = current_tune_power - 2
+    #     adjusted_uc_att = current_uc_att - 11
+    #     S.set_att_uc(band, adjusted_uc_att)
+    #     S.find_freq(band, tone_power=new_tune_power, make_plot=True)
+    #     S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
+    #     S.run_serial_gradient_descent(band)
+    #     S.run_serial_eta_scan(band)
+    #     current_uc_att = adjusted_uc_att
+    #     current_tune_power = new_tune_power
 
     estimate_att, current_tune_power, lowest_wl_index,wl_median = fine_tune(
         current_uc_att, current_tune_power, band,slot_num
@@ -453,29 +453,29 @@ if wl_median > 150 and wl_median < 250:
         )
         step1_index = lowest_wl_index
 
-        if estimate_att < 16:
-            print("adjusting tune power and uc att")
-            new_tune_power = current_tune_power + 2
-            adjusted_uc_att = current_uc_att + 12
-            S.set_att_uc(band, adjusted_uc_att)
-            S.find_freq(band, tone_power=new_tune_power, make_plot=True)
-            S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
-            S.run_serial_gradient_descent(band)
-            S.run_serial_eta_scan(band)
-            current_uc_att = adjusted_uc_att
-            current_tune_power = new_tune_power
+        # if estimate_att < 16:
+        #     print("adjusting tune power and uc att")
+        #     new_tune_power = current_tune_power + 2
+        #     adjusted_uc_att = current_uc_att + 12
+        #     S.set_att_uc(band, adjusted_uc_att)
+        #     S.find_freq(band, tone_power=new_tune_power, make_plot=True)
+        #     S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
+        #     S.run_serial_gradient_descent(band)
+        #     S.run_serial_eta_scan(band)
+        #     current_uc_att = adjusted_uc_att
+        #     current_tune_power = new_tune_power
 
-        if estimate_att > 26:
-            print("adjusting tune power and uc att")
-            new_tune_power = current_tune_power + 2
-            adjusted_uc_att = current_uc_att - 11
-            S.set_att_uc(band, adjusted_uc_att)
-            S.find_freq(band, tone_power=new_tune_power, make_plot=True)
-            S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
-            S.run_serial_gradient_descent(band)
-            S.run_serial_eta_scan(band)
-            current_uc_att = adjusted_uc_att
-            current_tune_power = new_tune_power
+        # if estimate_att > 26:
+        #     print("adjusting tune power and uc att")
+        #     new_tune_power = current_tune_power - 2
+        #     adjusted_uc_att = current_uc_att - 11
+        #     S.set_att_uc(band, adjusted_uc_att)
+        #     S.find_freq(band, tone_power=new_tune_power, make_plot=True)
+        #     S.setup_notches(band, tone_power=new_tune_power, new_master_assignment=True)
+        #     S.run_serial_gradient_descent(band)
+        #     S.run_serial_eta_scan(band)
+        #     current_uc_att = adjusted_uc_att
+        #     current_tune_power = new_tune_power
 
         estimate_att, current_tune_power, lowest_wl_index, wl_median= fine_tune(
             current_uc_att, current_tune_power, band,slot_num
