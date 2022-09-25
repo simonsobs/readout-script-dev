@@ -83,7 +83,6 @@ def collect_psatvstemp_data(
     metadata = np.genfromtxt(
         metadata_fp, delimiter=",", dtype=None, names=True, encoding=None
     )
-    temps_to_cut = np.atleast_1d(temps_to_cut)
     data_dict = {}
     if temp_list is not None:
         # Ensure the length of supplied temps matches that present in data
@@ -101,13 +100,23 @@ def collect_psatvstemp_data(
                 f"Length of supplied temperature list ({len(temp_list)}) does not"
                 + f" match the number of recorded temperatures ({len(temps)})."
             )
+    if isinstance(temps_to_cut, dict):
+        pass
+    else:
+        temps_to_cut = np.atleast_1d(temps_to_cut)
     used_temps = set()
+    # `used_temps` is just printed to screen for user reference
     for line in metadata:
         try:
             temp, bias, bl, sb, fp, note = line
         except ValueError:
             temp, bl, sb, fp, note = line
-        if isinstance(temp, np.int64):
+        # Ignore files that aren't IV curves
+        if note != "IV":
+            continue
+
+        ## Temperature correction
+        if isinstance(temp, np.int64) or isinstance(temp, float):
             pass
         elif isinstance(temp, str):
             temp = temp.split(" ")[ls_chans.index(ls_ch)]
@@ -122,9 +131,7 @@ def collect_psatvstemp_data(
         if temp > 40:
             temp *= 1e-3
         temp = round(temp, 3)
-        if temp in temps_to_cut or temp * 1e3 in temps_to_cut:
-            continue
-        used_temps.add(temp)
+
         if thermometer_id is not None:
             if thermometer_id.lower() == "x-066":
                 temp_scaling = 0.870
@@ -134,13 +141,12 @@ def collect_psatvstemp_data(
                 temp_offset = 0.014
             else:
                 raise ValueError(f"Unsupported thermometer_id {thermometer_id}.")
-        temp_corr = temp * temp_scaling + temp_offset
-        # Ignore files that aren't single-bias-line IV curves
-        if bl == "all":
-            continue
-        bl = int(bl)
+        temp_corr = np.round(temp * temp_scaling + temp_offset, 3)
+        used_temps.add(temp_corr)
+
         data_dict = process_iv_data(
-            fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn
+            fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn,
+            temps_to_cut
         )
 
     if bl_plot:
@@ -150,11 +156,34 @@ def collect_psatvstemp_data(
         assert assem_type == "ufm"
         plot_by_freq(data_dict, array_freq, optical_bl, figsize, plot_title)
     print(used_temps)
+
+    results_dict = {
+        'metadata': {
+            'units':{
+                'temp':'K',
+                'psat':'pW',
+                'R_n':'ohm'
+            }
+        },
+        'data': data_dict
+    }
+
+    results_dict["metadata"]["dataset"] = metadata_fp
+    results_dict["metadata"]["allowed_rn"] = [min_rn, max_rn]
+    results_dict["metadata"]["cut_increasing_psat"] = cut_increasing_psat
+    results_dict["metadata"]["thermometer_id"] = thermometer_id
+    results_dict["metadata"]["temp_list"] = temp_list
+    results_dict["metadata"]["optical_bl"] = optical_bl
+    results_dict["metadata"]["temp_offset"] = temp_list
+    results_dict["metadata"]["temp_scaling"] = temp_list
+    results_dict["metadata"]["temps_to_cut"] = temps_to_cut
+
     if return_data:
-        return data_dict
+        return results_dict
 
 
-def process_iv_data(fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn):
+def process_iv_data(
+    fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn, temps_to_cut):
     if "iv_raw_data" in fp:
         iv_analyzed_fp = fp.replace("iv_raw_data", "iv")
     elif "iv_info" in fp:
@@ -177,57 +206,82 @@ def process_iv_data(fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, m
             )
     iv_analyzed = np.load(iv_analyzed_fp, allow_pickle=True).item()
     if "data" in iv_analyzed.keys():
+        # older sodetlib iv_analyze.py files
         iv_analyzed = iv_analyzed["data"]
 
-    if bl not in data_dict.keys():
-        data_dict[bl] = {}
-
     if "bgmap" in iv_analyzed.keys():
-        idx = iv_analyzed["bgmap"] == bl
+        # new sodetlib iv_analysis.py files
+        if bl == 'all':
+            bl_to_do = np.arange(12)
+        else:
+            bl_to_do = [int(bl)]
 
-        for ind in range(np.sum(idx)):
-            ch = iv_analyzed["channels"][idx][ind]
-            sb = iv_analyzed["bands"][idx][ind]
+        for bl in bl_to_do:
+            if bl not in data_dict.keys():
+                data_dict[bl] = {}
+            # temperature cuts
+            if isinstance(temps_to_cut, dict):
+                temp_cut = temps_to_cut[bl]
+            else:
+                temp_cut = temps_to_cut
+            if temp_corr in temp_cut or temp_corr * 1e3 in temp_cut:
+                continue
 
-            d = {}
-            for k in [
-                "R",
-                "R_n",
-                "R_L",
-                "p_tes",
-                "v_tes",
-                "i_tes",
-                "p_sat",
-                "si",
-            ]:
-                d[k] = iv_analyzed[k][idx][ind]
-            d["p_tes"] *= 1e12
-            d["p_sat"] *= 1e12
+            idx = iv_analyzed["bgmap"] == bl
+            for ind in range(np.sum(idx)):
+                ch = iv_analyzed["channels"][idx][ind]
+                sb = iv_analyzed["bands"][idx][ind]
 
-            psat = do_iv_cuts(d, min_rn, max_rn)
-            if psat and cut_increasing_psat:
-                try:
-                    prev_psat = data_dict[bl][sb][ch]["psat"][-1]
-                    if psat > prev_psat:
-                        psat = False
-                except:
-                    pass
+                d = {}
+                for k in [
+                    "R",
+                    "R_n",
+                    "R_L",
+                    "p_tes",
+                    "v_tes",
+                    "i_tes",
+                    "p_sat",
+                    "si",
+                ]:
+                    d[k] = iv_analyzed[k][idx][ind]
+                d["p_tes"] *= 1e12
+                d["p_sat"] *= 1e12
 
-            if psat:
-                # key creation
-                if sb not in data_dict[bl].keys():
-                    data_dict[bl][sb] = dict()
-                if ch not in data_dict[bl][sb].keys():
-                    data_dict[bl][sb][ch] = {
-                        "temp": [],
-                        "psat": [],
-                        "R_n": [],
-                    }
-                data_dict[bl][sb][ch]["temp"].append(temp_corr)
-                data_dict[bl][sb][ch]["psat"].append(psat)
-                data_dict[bl][sb][ch]["R_n"].append(d["R_n"])
+                psat = do_iv_cuts(d, min_rn, max_rn)
+                if psat and cut_increasing_psat:
+                    try:
+                        prev_psat = data_dict[bl][sb][ch]["psat"][-1]
+                        if psat > prev_psat:
+                            psat = False
+                    except:
+                        pass
+
+                if psat and not np.isnan(psat):
+                    # key creation
+                    if sb not in data_dict[bl].keys():
+                        data_dict[bl][sb] = dict()
+                    if ch not in data_dict[bl][sb].keys():
+                        data_dict[bl][sb][ch] = {
+                            "temp": [],
+                            "psat": [],
+                            "R_n": [],
+                        }
+                    data_dict[bl][sb][ch]["temp"].append(temp_corr)
+                    data_dict[bl][sb][ch]["psat"].append(psat)
+                    data_dict[bl][sb][ch]["R_n"].append(d["R_n"])
 
     else:
+        # pysmurf and oldest sodetlib iv.py files
+        bl = int(bl)
+        if bl not in data_dict.keys():
+            data_dict[bl] = {}
+        # temperature cuts
+        if isinstance(temps_to_cut, dict):
+            temp_cut = temps_to_cut[bl]
+        else:
+            temp_cut = temps_to_cut
+        if temp_corr in temp_cut or temp_corr * 1e3 in temp_cut:
+            return data_dict
         for sb in iv_analyzed.keys():
             if sb == "high_current_mode":
                 continue
@@ -452,8 +506,11 @@ def fit_bathramp_data(
                         d["temp"],
                         np.asarray(d["psat"]),
                         p0=p0,
+                        absolute_sigma=True,
                     )
-                except RuntimeError:
+                except Exception as e:
+                    print(type(e))
+                    print("BL", bl, e)
                     continue
                 kg, tc, n = popt
                 sigma_kg, sigma_tc, sigma_n = np.sqrt(np.diag(pcov))
@@ -699,7 +756,7 @@ def analyze_bathramp(
     )
 
     results_dict = fit_bathramp_data(
-        data_dict,
+        data_dict['data'],
         array_freq=array_freq,
         assem_type=assem_type,
         optical_bl=optical_bl,
