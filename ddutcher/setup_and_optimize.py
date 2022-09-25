@@ -44,9 +44,10 @@ parser.add_argument(
 
 # optional arguments
 parser.add_argument(
-    "--optimize-fracpp",
+    "--skip-optimize-fracpp",
     default=False,
     action="store_true",
+    help="Include this flag to skip the frac_pp optimization skip",
 )
 parser.add_argument(
     "--acq-time",
@@ -78,7 +79,7 @@ S = cfg.get_smurf_control(dump_configs=True, make_logfile=(numeric_level != 10))
 if args.assem_type == 'ufm':
     high_noise_thresh = 250
     med_noise_thresh = 150
-    low_noise_thresh = 120
+    low_noise_thresh = 135
 elif args.assem_type == 'umm':
     high_noise_thresh = 250
     med_noise_thresh = 65
@@ -96,7 +97,7 @@ uxm_optimize(
     S=S,
     cfg=cfg,
     bands=args.bands,
-    opt_fracpp=args.optimize_fracpp,
+    opt_fracpp=(not args.skip_optimize_fracpp),
     low_noise_thresh=low_noise_thresh,
     med_noise_thresh=med_noise_thresh,
     high_noise_thresh=high_noise_thresh,

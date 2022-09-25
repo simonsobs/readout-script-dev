@@ -255,7 +255,7 @@ if __name__ == "__main__":
         help="Assembly type, ufm or umm. Determines the relevant noise thresholds.",
     )
     parser.add_argument(
-        "--optimize-fracpp",
+        "--skip-optimize-fracpp",
         default=False,
         action='store_true',
     )
@@ -309,7 +309,7 @@ if __name__ == "__main__":
         S=S,
         cfg=cfg,
         bands=args.bands,
-        opt_fracpp=args.optimize_fracpp,
+        opt_fracpp=(not args.skip_optimize_fracpp),
         low_noise_thresh=low_noise_thresh,
         med_noise_thresh=med_noise_thresh,
         high_noise_thresh=high_noise_thresh,

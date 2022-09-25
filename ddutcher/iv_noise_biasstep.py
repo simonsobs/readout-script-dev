@@ -63,10 +63,7 @@ for bias_index, bias_g in enumerate(bias_groups):
     S.set_tes_bias_low_current(bias_g)
 
 bias_v = 0
-bias_array = np.zeros(S._n_bias_groups)
-for bg in bias_groups:
-    bias_array[bg] = bias_v
-S.set_tes_bias_bipolar_array(bias_array)
+S.set_tes_bias_bipolar_array([bias_v] * S._n_bias_groups)
 time.sleep(10)
 
 fieldnames = ['bath_temp','bias_voltage', 'bias_line', 'band', 'data_path','type']
@@ -148,7 +145,8 @@ with open(out_fn, 'a', newline = '') as csvfile:
     writer.writerow(row)
 
 for rfrac in [0.7, 0.5, 0.3]:
-    ops.bias_to_rfrac(S, cfg, rfrac=rfrac)
+    biases = ops.bias_to_rfrac(S, cfg, rfrac=rfrac, math_only=True)
+    S.set_tes_bias_bipolar_array(biases)
     time.sleep(30)
 
     #take 30s timestream for noise
@@ -181,3 +179,6 @@ for rfrac in [0.7, 0.5, 0.3]:
     with open(out_fn, 'a', newline = '') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow(row)
+
+bias_v = 0
+S.set_tes_bias_bipolar_array([bias_v] * S._n_bias_groups)
