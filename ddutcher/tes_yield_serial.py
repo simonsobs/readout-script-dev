@@ -22,16 +22,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 def tickle_and_iv(
-        S, target_bg, bias_high, bias_low, bias_step,
+        S, cfg, target_bg, bias_high, bias_low, bias_step,
         bath_temp, start_time, current_mode, make_bgmap,
 ):
-    target_bg = np.array(target_bg)
+    target_bg = np.atleast_1d(target_bg)
     save_name = '{}_tes_yield.csv'.format(start_time)
     tes_yield_data = os.path.join(S.output_dir, save_name)
     logger.info(f'Saving data to {tes_yield_data}')
     out_fn = os.path.join(S.output_dir, tes_yield_data) 
 
-    if make_bgmap:
+    if make_bgmap or cfg.dev.exp.get('bgmap_file') is None:
         bsa = take_bgmap(S, cfg, bgs=target_bg, show_plots=False)
 
     fieldnames = ['bath_temp', 'bias_line', 'band', 'data_path','notes']
@@ -39,11 +39,8 @@ def tickle_and_iv(
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
-    if current_mode.lower() in ['high, hi']:
+    if current_mode.lower() in ['high', 'hi']:
         high_current_mode = True
-        bias_high /= S.high_low_current_ratio
-        bias_low /= S.high_low_current_ratio
-        bias_step /= S.high_low_current_ratio
     else:
         high_current_mode = False
 
@@ -266,10 +263,10 @@ def tes_yield(S, target_bg, out_fn, start_time):
 def run(S, cfg, bias_high=20, bias_low=0, bias_step=0.025, bath_temp=100,
         current_mode='low', make_bgmap=False):
     start_time = S.get_timestamp()
-    target_bg = range(12)
+    target_bg = [0,1,2,3,4,5,6,7,8,9,10,11]
 
     out_fn = tickle_and_iv(
-        S, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,
+        S, cfg, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,
         current_mode, make_bgmap)
     target_vbias = tes_yield(S, target_bg, out_fn, start_time)
     logger.info(f'Saving data to {out_fn}')
@@ -285,7 +282,7 @@ if __name__ == "__main__":
     parser.add_argument('--bias-high', type=float, default=19)
     parser.add_argument('--bias-low', type=float, default=0)
     parser.add_argument('--bias-step', type=float, default=0.025)
-    parser.add_argument('--current-mode', type=str, default='low')
+    parser.add_argument('--current-mode', type=str, default='low',choices=['high','hi','low'])
     parser.add_argument('--make-bgmap', default=False, action='store_true')
     parser.add_argument(
         "--loglevel",

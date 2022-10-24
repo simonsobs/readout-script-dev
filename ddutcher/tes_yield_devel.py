@@ -22,7 +22,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def tickle_and_iv(
-        S, target_bg, bias_high, bias_low, bias_step,
+        S, cfg, target_bg, bias_high, bias_low, bias_step,
         bath_temp, start_time, current_mode, make_bgmap,
 ):
     target_bg = np.array(target_bg)
@@ -31,8 +31,10 @@ def tickle_and_iv(
     logger.info(f'Saving data to {tes_yield_data}')
     out_fn = os.path.join(S.output_dir, tes_yield_data) 
 
-    if make_bgmap:
+    if make_bgmap or cfg.dev.exp.get('bgmap_file') is None:
         bsa = take_bgmap(S, cfg, bgs=target_bg, show_plots=False)
+
+    S.set_tes_bias_bipolar_array([0] * S._n_bias_groups)
 
     fieldnames = ['bath_temp', 'bias_line', 'band', 'data_path','notes']
     with open(out_fn, 'w', newline = '') as csvfile:
@@ -41,9 +43,6 @@ def tickle_and_iv(
 
     if current_mode.lower() in ['high, hi']:
         high_current_mode = True
-        bias_high /= S.high_low_current_ratio
-        bias_low /= S.high_low_current_ratio
-        bias_step /= S.high_low_current_ratio
     else:
         high_current_mode = False
 
@@ -266,7 +265,7 @@ def run(S, cfg, bias_high=20, bias_low=0, bias_step=0.025, bath_temp=100,
     target_bg = np.arange(12)
 
     out_fn = tickle_and_iv(
-        S, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,
+        S, cfg, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,
         current_mode, make_bgmap)
     target_vbias = tes_yield(S, target_bg, out_fn, start_time)
     logger.info(f'Saving data to {out_fn}')

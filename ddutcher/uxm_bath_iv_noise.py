@@ -25,9 +25,14 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--slot',type=int)
 parser.add_argument('--temp',type=str)
+parser.add_argument('--bgs', type=int, nargs='+', default=None)
 parser.add_argument('--output_file',type=str)
 
 args = parser.parse_args()
+if args.bgs is None:
+    bias_groups = range(12)
+else:
+    bias_groups = args.bgs
 slot_num = args.slot
 bath_temp = args.temp
 out_fn = args.output_file
@@ -51,8 +56,7 @@ for band in [0,1,2,3,4,5,6,7]:
         feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],
         lms_gain=cfg.dev.bands[band]['lms_gain'],
     )
-  
-bias_groups = [0,1,2,3,4,5,6,7,8,9,10,11] 
+
 S.set_filter_disable(0)
 S.set_rtm_arb_waveform_enable(0)
 S.set_downsample_factor(20)

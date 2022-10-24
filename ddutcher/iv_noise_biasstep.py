@@ -137,7 +137,7 @@ with open(out_fn, 'a', newline = '') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
     writer.writerow(row)
 
-bsa = ops.take_bias_steps(S, cfg)
+bsa = ops.take_bias_steps(S, cfg, bgs=bias_groups)
 row['data_path'] = bsa.filepath
 row['type'] = 'bias_step'
 with open(out_fn, 'a', newline = '') as csvfile:
@@ -145,7 +145,7 @@ with open(out_fn, 'a', newline = '') as csvfile:
     writer.writerow(row)
 
 for rfrac in [0.7, 0.5, 0.3]:
-    biases = ops.bias_to_rfrac(S, cfg, rfrac=rfrac, math_only=True)
+    biases = ops.bias_to_rfrac(S, cfg, rfrac=rfrac, bias_groups=bias_groups, math_only=True)
     S.set_tes_bias_bipolar_array(biases)
     time.sleep(30)
 
@@ -172,7 +172,7 @@ for rfrac in [0.7, 0.5, 0.3]:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow(row)
 
-    bsa = ops.take_bias_steps(S, cfg)
+    bsa = ops.take_bias_steps(S, cfg, bgs=bias_groups)
     row['type'] = 'bias_step'
     row['data_path'] = bsa.filepath
     
