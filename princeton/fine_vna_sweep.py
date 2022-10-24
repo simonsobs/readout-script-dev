@@ -7,6 +7,7 @@ import os
 import socket
 import time
 import numpy as np
+import argparse
 
 # Fine VNA sweep start frequencies. Each sweep 0.2 GHz wide.
 freqs = np.arange(3.8e9, 6.2e9, 0.2e9)
@@ -14,7 +15,7 @@ freqs = np.arange(3.8e9, 6.2e9, 0.2e9)
 # The save directory must already exist on the VNA computer!
 save_fmt = os.path.join(
     '"D:/State', # date_dr_device
-    '20220414_pton_Mv19_Mv20/cold_device/RF6_Mv19_S', # subdirectory structure
+    '20221017_pton_Mv13_Mv21_Mv26/cold_device/RF1_Mv26_S', # subdirectory structure
     '%.2f-f_%.2f_to_%.2f-bw_%.1f-atten_%.1f-volts_%.3f.%s"',
 )
 # % Fields in last line of save_fmt will be:
@@ -284,7 +285,7 @@ class VNA(object):
         
         time.sleep(2)
 
-def run(save_pth, freqs=np.arange(3.8e9, 6.2e9, 0.2e9)):
+def run(save_pth, freqs=np.arange(3.8e9, 6.2e9, 0.2e9), if_bandwidth=100):
     '''
     save_path: str
         Formattable string for the vna results to be saved to.
@@ -309,7 +310,17 @@ def run(save_pth, freqs=np.arange(3.8e9, 6.2e9, 0.2e9)):
         f_start = freq
         f_stop = freq + 0.2e9
         
-        vna.get_freq_sweep(f_start, f_stop, if_bandwidth=100, power_level=atten)
+        vna.get_freq_sweep(f_start, f_stop, if_bandwidth=if_bandwidth, power_level=atten)
 
 if __name__=="__main__":
-    run(save_pth=save_pth, freqs=freqs)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--fast', default=False, action='store_true',
+                        help="Set this kwarg to do faster VNA, for mapping only",
+    )
+
+    args = parser.parse_args()
+    if args.fast:
+        if_bandwidth = 1000
+    else:
+        if_bandwidth = 100
+    run(save_pth=save_pth, freqs=freqs, if_bandwidth=if_bandwidth)

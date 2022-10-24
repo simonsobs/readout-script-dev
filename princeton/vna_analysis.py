@@ -2,7 +2,7 @@
 Code related to analyzing fine sweep VNA data.
 Adopted primarily from code written by hmccarrick
 
-Example usage: python3 /home/simons/code/vna_analysis.py /data/vna/20211028_P-G-005_512_SPB-13_Mv9_Mv11/cold_device/RF1_Mv11_North -o /home/simons/data/P-G-005/Mv11_North -l Mv11_North
+Example usage: python3 /home/simons/code/vna_analysis.py /data/vna/20211028_P-G-005_512_SPB-13_Mv9_Mv11/cold_device/RF1_Mv11_North -o /home/simons/data/P-G-005/UFM-Mv11 -l Mv11_North
 """
 
 import os
@@ -56,8 +56,12 @@ def analyze_vna(
         _tmp = file.replace("-", "_").split("_")
         # The following lines are to identify the start/stop freqs from the file name.
         # If the file is named weirdly, it might crash here with a ValueError.
-        start_freq_ind = _tmp.index('F') + 1
-        stop_freq_ind = _tmp.index('TO') + 1
+        try:
+            start_freq_ind = _tmp.index('F') + 1
+            stop_freq_ind = _tmp.index('TO') + 1
+        except ValueError:
+            print(f"I couldn't parse path {path}, skipping this file")
+            continue
         if np.isclose(float(_tmp[stop_freq_ind]) - float(_tmp[start_freq_ind]), bw):
             vna_files.append(path)
 
@@ -225,8 +229,8 @@ def correct_trend(freq, s21, avg_over=800):
     return s21_corrected
 
 
-def get_qi(Q, Q_e_real):
-    return (Q ** -1 - Q_e_real ** -1) ** -1
+def get_qi(Q, Q_e_real, Q_e_imag):
+    return (Q**-1 - np.real((Q_e_real+1j*Q_e_imag)**-1))**-1
 
 
 def get_br(Q, f_0):
@@ -362,7 +366,7 @@ def fit_vna_resonances(
             f0 = result.best_values["f_0"]
             Q = result.best_values["Q"]
             Qc = result.best_values["Q_e_real"]
-            Qi = get_qi(result.best_values["Q"], result.best_values["Q_e_real"])
+            Qi = get_qi(result.best_values["Q"], result.best_values["Q_e_real"], result.best_values["Q_e_imag"])
             br = get_br(result.best_values["Q"], result.best_values["f_0"]) / 1.0e6
             res_index = k
             depth = get_dip_depth(result.best_fit)
@@ -388,7 +392,8 @@ def fit_vna_resonances(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("data_dir", type=str,
-                        help="Directory containing fine sweep VNA data.",
+                        help="Directory containing fine sweep VNA data"
+                        + " corresponding to one RF chain.",
                        )
     parser.add_argument("--out", "-o", type=str, required=True,
                         help="Directory to save the outputs to.",
