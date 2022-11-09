@@ -23,8 +23,9 @@ import scipy.signal as signal
 
 
 
-band = 0
+band = 7
 slot_num =7
+amp_cut =0.4
 
 cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)
@@ -57,7 +58,7 @@ print("setting synthesis scale")
 # hard coding it for the current fw
 S.set_synthesis_scale(band, 1)
 print("running find freq")
-S.find_freq(band, tone_power=cfg.dev.bands[band]["tone_power"], make_plot=True)
+S.find_freq(band, tone_power=cfg.dev.bands[band]["tone_power"], amp_cut=amp_cut,make_plot=True)
 print("running setup notches")
 S.setup_notches(
     band, tone_power=cfg.dev.bands[band]["tone_power"], new_master_assignment=True
@@ -328,7 +329,7 @@ def fine_tune(current_uc_att, current_tune_power, band,slot_num):
     return estimate_att, current_tune_power, lowest_wl_index, wl_median
 
 
-if wl_median > 200:
+if wl_median > 500:
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
     )
@@ -337,7 +338,7 @@ if wl_median > 200:
     )
 
 
-if wl_median < 45:
+if wl_median < 300:
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
     )
@@ -353,7 +354,7 @@ if wl_median < 45:
     print("achieved at uc att {} drive {}".format(estimate_att, current_tune_power))
 
 
-if wl_median > 45 and wl_median < 65:
+if wl_median > 100 and wl_median < 300:
 
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
@@ -406,7 +407,7 @@ if wl_median > 45 and wl_median < 65:
     print("achieved at uc att {} drive {}".format(estimate_att, current_tune_power))
 
 
-if wl_median > 65 and wl_median < 200:
+if wl_median > 300 and wl_median < 500:
 
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
@@ -420,7 +421,7 @@ if wl_median > 65 and wl_median < 200:
         current_uc_att, current_tune_power, band,slot_num
     )
 
-    if wl_median < 45:
+    if wl_median < 100:
         print(
             "WL: {} with {} channels out of {}".format(
                 wl_median, wl_length, channel_length
@@ -437,7 +438,7 @@ if wl_median > 65 and wl_median < 200:
 
         print("achieved at uc att {} drive {}".format(estimate_att, current_tune_power))
 
-    if wl_median > 45:
+    if wl_median > 100:
 
         print(
             "WL: {} with {} channels out of {}".format(

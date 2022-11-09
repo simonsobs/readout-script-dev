@@ -21,10 +21,10 @@ amplitudes_and_uc_atts=[(None,None)]
 
 # needs to be nonzero, or won't track flux ramp well,
 # particularly when stepping flux ramp by large amounts
-lmsGain=6
+lmsGain=1
 hbInBay0=False
 relock=False 
-bands=[4,5,6,7]
+bands=[0,7]
 bias=None
 # no longer averaging as much or waiting as long between points in newer fw which has df filter
 wait_time=0.125

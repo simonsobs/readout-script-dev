@@ -56,7 +56,8 @@ def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
         S.find_freq(band, start_freq=start_freq, tone_power=cfg.dev.bands[band]["tone_power"], make_plot=True)
         logger.info("running setup notches")
         S.setup_notches(
-            band, tone_power=cfg.dev.bands[band]["tone_power"], new_master_assignment=True
+            band, tone_power=cfg.dev.bands[band]["tone_power"],
+            new_master_assignment=True, scan_unassigned=True,
         )
         logger.info("running serial gradient descent and eta scan")
         S.run_serial_gradient_descent(band)

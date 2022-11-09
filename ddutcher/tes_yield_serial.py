@@ -55,8 +55,8 @@ def tickle_and_iv(
         S, cfg,
         bias_groups=target_bg, wait_time=0.01, bias_high=bias_high,
         overbias_wait=2, bias_low=bias_low, bias_step=bias_step,
-        overbias_voltage=12, cool_wait=30, high_current_mode=high_current_mode,
-        show_plots=False,run_serially=True, serial_wait_time=30,
+        overbias_voltage=15, cool_wait=30, high_current_mode=high_current_mode,
+        show_plots=False, run_serially=True, serial_wait_time=30,
     )
     dat_file = iva.filepath
     row['data_path'] = dat_file
@@ -263,7 +263,7 @@ def tes_yield(S, target_bg, out_fn, start_time):
 def run(S, cfg, bias_high=20, bias_low=0, bias_step=0.025, bath_temp=100,
         current_mode='low', make_bgmap=False):
     start_time = S.get_timestamp()
-    target_bg = [0,1,2,3,4,5,6,7,8,9,10,11]
+    target_bg = [1,2,3,4,5,6,7,8,9,10,11]
 
     out_fn = tickle_and_iv(
         S, cfg, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,

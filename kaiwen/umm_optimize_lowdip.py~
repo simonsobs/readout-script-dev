@@ -23,8 +23,9 @@ import scipy.signal as signal
 
 
 
-band = 0
+band = 4
 slot_num =7
+amp_cut =0.1
 
 cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)
@@ -57,7 +58,7 @@ print("setting synthesis scale")
 # hard coding it for the current fw
 S.set_synthesis_scale(band, 1)
 print("running find freq")
-S.find_freq(band, tone_power=cfg.dev.bands[band]["tone_power"], make_plot=True)
+S.find_freq(band, tone_power=cfg.dev.bands[band]["tone_power"], amp_cut=amp_cut,make_plot=True)
 print("running setup notches")
 S.setup_notches(
     band, tone_power=cfg.dev.bands[band]["tone_power"], new_master_assignment=True

@@ -27,7 +27,7 @@ import sodetlib.analysis.det_analysis as det_analysis
 
 start_time=S.get_timestamp()
 
-target_BL = np.array([0,1,2,3,4,5,6,7,8,9,10,11])
+target_BL = np.array([0,1,2,3])
 
 #this is more for keeping track of bath temp
 bath_temp = 100
@@ -93,7 +93,7 @@ def write_IV_into_dict(IV_csv):
     psat_array = []
     
     data = []
-    for ind in np.array([0,1,2,3,4,5,6,7,8,9,10,11])+1:
+    for ind in np.array([0,1,2,3])+1:
         file_path = str(data_dict['data_path'][ind])
         data.append(file_path)
     
@@ -106,7 +106,7 @@ def write_IV_into_dict(IV_csv):
     bad = 0
     
 
-    for ind, bl in enumerate([0,1,2,3,4,5,6,7,8,9,10,11]):
+    for ind, bl in enumerate([0,1,2,3]):
         ch_psat = []
         if bl not in all_data.keys():
             all_data[bl] = dict()
@@ -175,9 +175,9 @@ common_biases = np.array(
 common_biases = np.array(common_biases)
 
 operating_r = dict()
-for bl in [0,1,2,3,4,5,6,7,8,9,10,11]:
+for bl in [0,1,2,3]:
     operating_r[bl] = dict()
-    for band in [0,1,2,3,4,5,6,7]:
+    for band in [0,1,2]:
         try:
             if len(all_data_IV[bl][band].keys()) == 0:
                 continue
@@ -204,7 +204,7 @@ for bl in bias_groups:
     percent_rn = 0.5
     target_v_bias = []
 
-    for band in [0,1,2,3,4,5,6,7]:
+    for band in [0,1,2]:
         try:
 
             for ch,d in all_data_IV[bl][band].items():
@@ -224,9 +224,9 @@ print(np.array(target_vbias_list))
 
 total_count = 0
 fig, axs = plt.subplots(6, 4,figsize=(25,30), gridspec_kw={'width_ratios': [2, 1,2,1]})
-for bl in [0,1,2,3,4,5,6,7,8,9,10,11]:
+for bl in [0,1,2,3]:
     count_num = 0
-    for band in [0,1,2,3,4,5,6,7]:
+    for band in [0,1,2]:
         try:
             for ch,d in all_data_IV[bl][band].items():
                 axs[bl//2,bl%2*2].plot(d['v_bias'], d['R'], alpha=0.6)
@@ -257,11 +257,11 @@ plt.savefig(os.path.join(S.plot_dir, save_name))
 
 
 fig, axs = plt.subplots(6, 4,figsize=(25,30), gridspec_kw={'width_ratios': [2, 2,2,2]})
-for bl in [0,1,2,3,4,5,6,7,8,9,10,11]:
+for bl in [0,1,2,3]:
     count_num = 0
     Rn = []
     psat = []
-    for band in [0,1,2,3,4,5,6,7]:
+    for band in [0,1,2]:
         try:
             for ch,d in all_data_IV[bl][band].items():
                 Rn.append(d['R_n'])

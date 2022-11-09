@@ -121,10 +121,10 @@ def write_IV_into_dict(IV_csv):
             for chan, d in now[sb].items():
 #                 print(chan)
     #             print(d.keys())
-                if (d['R'][-1] < 5e-3):
-                    continue
-                elif len(np.where(d['R'] > 10e-3)[0]) > 0:
-                    continue
+#                if (d['R'][-1] < 5e-3):
+#                    continue
+#                elif len(np.where(d['R'] > 10e-3)[0]) > 0:
+#                    continue
 #                 elif len(np.where(d['R'] < -2e-4)[0]) > 0:
 #                     continue
 

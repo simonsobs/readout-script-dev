@@ -67,7 +67,7 @@ row['data_path'] = tickle_file
 with open(out_fn, 'a', newline = '') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
     writer.writerow(row)
-
+"""
 for bias_gp in target_BL:
         row = {}
         row['bath_temp'] = bath_temp
@@ -84,9 +84,7 @@ for bias_gp in target_BL:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writerow(row)
 
-
-
-
+"""
 def write_IV_into_dict(IV_csv):
     
     data_dict = np.genfromtxt(IV_csv, delimiter=",",unpack=True, dtype=None, names=True, encoding=None)
@@ -121,10 +119,10 @@ def write_IV_into_dict(IV_csv):
             for chan, d in now[sb].items():
 #                 print(chan)
     #             print(d.keys())
-                if (d['R'][-1] < 5e-3):
-                    continue
-                elif len(np.where(d['R'] > 10e-3)[0]) > 0:
-                    continue
+#                if (d['R'][-1] < 5e-3):
+#                    continue
+#                elif len(np.where(d['R'] > 10e-3)[0]) > 0:
+#                    continue
 #                 elif len(np.where(d['R'] < -2e-4)[0]) > 0:
 #                     continue
 

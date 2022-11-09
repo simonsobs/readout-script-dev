@@ -27,13 +27,15 @@ import sodetlib.analysis.det_analysis as det_analysis
 
 start_time=S.get_timestamp()
 
-target_BL = np.array([0,1,2,3,4,5,6,7,8,9,10,11])
-
+target_BL = np.array([0,1,2])
+high_current_mode=False
 #this is more for keeping track of bath temp
-bath_temp = 100
-bias_high_command=19
+bath_temp = 200
+bias_high_command=18 #19
 bias_low_command=0
 bias_step_command = 0.025
+overbias_voltage_command= 12
+make_plot_command=False
 
 save_name = '{}_tes_yield.csv'.format(start_time)
 print(f'Saving data to {os.path.join(S.output_dir, save_name)}')
@@ -51,10 +53,10 @@ with open(out_fn, 'w', newline = '') as csvfile:
     writer.writeheader()
  
  
-print(f'Taking tickle on bias line all band')
+#print(f'Taking tickle on bias line all band')
 
-tickle_file = det_op.take_tickle(S, cfg, target_BL, tickle_freq=5, tickle_voltage=0.005,high_current=True)
-det_analysis.analyze_tickle_data(S, tickle_file,normal_thresh=0.002)  
+#tickle_file = det_op.take_tickle(S, cfg, target_BL, tickle_freq=5, tickle_voltage=0.005,high_current=False)
+#det_analysis.analyze_tickle_data(S, tickle_file,normal_thresh=0.002)  
 
 row = {}
 row['bath_temp'] = bath_temp
@@ -77,7 +79,8 @@ for bias_gp in target_BL:
         print(f'Taking IV on bias line {bias_gp}, all band')
           
  
-        iv_data = S.run_iv(bias_groups = [bias_gp], wait_time=0.001, bias_high=bias_high_command, bias_low=bias_low_command, bias_step = bias_step_command, overbias_voltage=18, cool_wait=0, high_current_mode=False, make_plot=False, save_plot=True, cool_voltage = 8)
+        iv_data = S.run_iv(bias_groups = [bias_gp], wait_time=0.001, bias_high=bias_high_command, bias_low=bias_low_command, bias_step = bias_step_command, 
+            overbias_voltage=overbias_voltage_command, cool_wait=0, high_current_mode=high_current_mode, make_plot=make_plot_command, save_plot=make_plot_command, cool_voltage = 8)
         dat_file = iv_data[0:-13]+'.npy'     
         row['data_path'] = dat_file
         with open(out_fn, 'a', newline = '') as csvfile:
@@ -93,7 +96,7 @@ def write_IV_into_dict(IV_csv):
     psat_array = []
     
     data = []
-    for ind in np.array([0,1,2,3,4,5,6,7,8,9,10,11])+1:
+    for ind in target_BL+1:
         file_path = str(data_dict['data_path'][ind])
         data.append(file_path)
     
@@ -106,12 +109,12 @@ def write_IV_into_dict(IV_csv):
     bad = 0
     
 
-    for ind, bl in enumerate([0,1,2,3,4,5,6,7,8,9,10,11]):
+    for ind, bl in enumerate(target_BL):
         ch_psat = []
         if bl not in all_data.keys():
             all_data[bl] = dict()
         now = np.load(data[bl], allow_pickle=True).item()
-        for sb in [0,1,2,3,4,5,6,7]:
+        for sb in target_BL:
             try:
                 if len(now[sb].keys()) != 0:
                     all_data[bl][sb] = dict()
@@ -121,10 +124,10 @@ def write_IV_into_dict(IV_csv):
             for chan, d in now[sb].items():
 #                 print(chan)
     #             print(d.keys())
-                if (d['R'][-1] < 5e-3):
-                    continue
-                elif len(np.where(d['R'] > 10e-3)[0]) > 0:
-                    continue
+                # if (d['R'][-1] < 5e-3):
+                #     continue
+                # elif len(np.where(d['R'] > 10e-3)[0]) > 0:
+                #     continue
 #                 elif len(np.where(d['R'] < -2e-4)[0]) > 0:
 #                     continue
 
@@ -158,7 +161,7 @@ all_data_IV,Psat_array = write_IV_into_dict(out_fn)
 common_biases = set()
 now_bias = set()
 for bl in all_data_IV.keys():
-    for sb in [0,1,2,3,4,5,6,7]:
+    for sb in target_BL:
         try:
             if len(all_data_IV[bl][sb].keys()) != 0:
                 first_chan = next(iter(all_data_IV[bl][band]))
@@ -175,9 +178,9 @@ common_biases = np.array(
 common_biases = np.array(common_biases)
 
 operating_r = dict()
-for bl in [0,1,2,3,4,5,6,7,8,9,10,11]:
+for bl in target_BL:
     operating_r[bl] = dict()
-    for band in [0,1,2,3,4,5,6,7]:
+    for band in [0,1,2,3]:
         try:
             if len(all_data_IV[bl][band].keys()) == 0:
                 continue
@@ -204,7 +207,7 @@ for bl in bias_groups:
     percent_rn = 0.5
     target_v_bias = []
 
-    for band in [0,1,2,3,4,5,6,7]:
+    for band in [0,1,2,3]:
         try:
 
             for ch,d in all_data_IV[bl][band].items():
@@ -224,9 +227,9 @@ print(np.array(target_vbias_list))
 
 total_count = 0
 fig, axs = plt.subplots(6, 4,figsize=(25,30), gridspec_kw={'width_ratios': [2, 1,2,1]})
-for bl in [0,1,2,3,4,5,6,7,8,9,10,11]:
+for bl in target_BL:
     count_num = 0
-    for band in [0,1,2,3,4,5,6,7]:
+    for band in [0,1,2,3]:
         try:
             for ch,d in all_data_IV[bl][band].items():
                 axs[bl//2,bl%2*2].plot(d['v_bias'], d['R'], alpha=0.6)
@@ -257,11 +260,11 @@ plt.savefig(os.path.join(S.plot_dir, save_name))
 
 
 fig, axs = plt.subplots(6, 4,figsize=(25,30), gridspec_kw={'width_ratios': [2, 2,2,2]})
-for bl in [0,1,2,3,4,5,6,7,8,9,10,11]:
+for bl in target_BL:
     count_num = 0
     Rn = []
     psat = []
-    for band in [0,1,2,3,4,5,6,7]:
+    for band in [0,1,2,3]:
         try:
             for ch,d in all_data_IV[bl][band].items():
                 Rn.append(d['R_n'])
