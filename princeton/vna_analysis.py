@@ -137,7 +137,7 @@ def plot_vna_muxband_peaks(freq, resp, peak_inds, suptitle='', output_dir=None):
             label = "Above band: {num_peaks}"
         else:
             fstart, fstop = 4e9 + (0.5e9) * band, 4e9 + (0.5e9) * (band + 1)
-            label = "Band %s/%s: {num_peaks}" % (band, band + 4)
+            label = "SMuRF Band %s/%s: {num_peaks}" % (band, band + 4)
         inds = np.where((freq >= fstart) & (freq < fstop))
         num_peaks = len(np.where(
             (peak_freqs >= fstart) & (peak_freqs < fstop)
@@ -154,8 +154,12 @@ def plot_vna_muxband_peaks(freq, resp, peak_inds, suptitle='', output_dir=None):
         ax.axvspan(band[0],band[1], fc=muxband_colors[i], alpha=0.3)
         ax.text(band[0]+0.01, -29, "Band %02d" % i, color=muxband_colors[i],
                 fontsize=6, weight='heavy')
-    for sb in sb_cutoffs:
-        ax.axvline(sb, color='k', linestyle=':')
+    for sb, sb_f in enumerate(sb_cutoffs):
+        ax.axvline(sb_f, color='k', linestyle=':')
+        if sb>3:
+            break
+        ax.text(sb_f+0.15, 13.5, "SMuRF Band %0d/%0d" % (sb,sb+4),
+                color='k', fontsize=6, weight='heavy')
 
     ax.set_xlabel("Frequency (GHz)")
     ax.set_ylabel("S21 Magnitude (dB)")
