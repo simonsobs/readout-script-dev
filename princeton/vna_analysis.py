@@ -84,6 +84,9 @@ def analyze_vna(
         plot_vna_peaks(
             freq, resp, peak_inds, suptitle=label, output_dir=output_dir,
         )
+        plot_vna_muxband_peaks(
+            freq, resp, peak_inds, suptitle=label, output_dir=output_dir,
+        )
 
     res_params = fit_vna_resonances(freq, resp, peak_inds)
 
@@ -103,6 +106,70 @@ def analyze_vna(
 
     if return_data:
         return res_params
+
+
+def plot_vna_muxband_peaks(freq, resp, peak_inds, suptitle='', output_dir=None):
+    # mux band definitions
+    half_lims = np.array([
+        (4.018,4.147),
+        (4.151,4.280),
+        (4.284,4.414),
+        (4.418,4.581),
+        (4.583,4.715),
+        (4.717,4.848),
+        (4.850,4.981),
+    ])
+    mux_band_lims = np.concatenate((half_lims, half_lims+1))
+    muxband_colors = ['cyan','red','blue','magenta','green','yellow','brown'] * 2
+
+    # smurf band definitons
+    sb_cutoffs = [4.0,4.5,5.0,5.5,6.0]
+
+    #Plot S21 in db
+    peak_freqs = freq[peak_inds]
+    fig, ax = plt.subplots(figsize=(9,4))
+    for band in np.arange(6):
+        if band == 4:
+            fstart, fstop = 0, 4e9
+            label = "Below band: {num_peaks}"
+        elif band == 5:
+            fstart, fstop = 6e9, np.inf
+            label = "Above band: {num_peaks}"
+        else:
+            fstart, fstop = 4e9 + (0.5e9) * band, 4e9 + (0.5e9) * (band + 1)
+            label = "Band %s/%s: {num_peaks}" % (band, band + 4)
+        inds = np.where((freq >= fstart) & (freq < fstop))
+        num_peaks = len(np.where(
+            (peak_freqs >= fstart) & (peak_freqs < fstop)
+        )[0])
+
+        ax.plot(
+            freq[inds] * 1e-9 ,
+            20 * np.log10(np.abs(resp[inds])),
+            c='k',
+            linewidth=1,
+            label=label.format(num_peaks=num_peaks)
+        )
+    for i, band in enumerate(mux_band_lims):
+        ax.axvspan(band[0],band[1], fc=muxband_colors[i], alpha=0.3)
+        ax.text(band[0]+0.01, -29, "Band %02d" % i, color=muxband_colors[i],
+                fontsize=6, weight='heavy')
+    for sb in sb_cutoffs:
+        ax.axvline(sb, color='k', linestyle=':')
+
+    ax.set_xlabel("Frequency (GHz)")
+    ax.set_ylabel("S21 Magnitude (dB)")
+    ax.set_xticks(np.arange(4, 6.3, 0.1), minor=True)
+    ax.set_ylim(-30,15)
+    ax.set_xlim(3.9,6.1)
+    ax.set_title("%0d resonances" % len(peak_inds))
+    ax.legend(loc='upper right', ncol=3, fontsize='small')
+    plt.suptitle(suptitle)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) 
+
+    if output_dir is not None:
+        fname = "_".join([suptitle, "vna_muxband_peaks.png"]).strip("_")
+        plt.savefig(os.path.join(output_dir, fname))
 
 
 def plot_vna_peaks(freq, resp, peak_inds, suptitle='', output_dir=None):
