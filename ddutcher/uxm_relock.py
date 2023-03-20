@@ -71,6 +71,15 @@ def uxm_relock(S, cfg, bands=None, setup_notches=False, estimate_phase_delay=Fal
             feedback_gain=cfg.dev.bands[band]["feedback_gain"],
             lms_gain=cfg.dev.bands[band]['lms_gain']
         )
+        S.check_lock(
+            band,
+            reset_rate_khz=cfg.dev.bands[band]["flux_ramp_rate_khz"],
+            fraction_full_scale=cfg.dev.bands[band]["frac_pp"],
+            lms_freq_hz=cfg.dev.bands[band]["lms_freq_hz"],
+            feedback_start_frac=cfg.dev.bands[band]["feedback_start_frac"],
+            feedback_end_frac=cfg.dev.bands[band]["feedback_end_frac"],
+            lms_gain=cfg.dev.bands[band]["lms_gain"],
+        )
 
 
 if __name__ == "__main__":
@@ -92,7 +101,7 @@ if __name__ == "__main__":
     )
 
     cfg = DetConfig()
-    args = cfg.parse_args(parser)
+    args = cfg.parse_args(parser) # handles --slot <#> argument
 
     S = cfg.get_smurf_control()
 

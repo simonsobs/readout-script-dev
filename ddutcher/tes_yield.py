@@ -22,7 +22,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def tickle_and_iv(
-        S, target_bg, bias_high, bias_low, bias_step,
+        S, target_bg, overbias_voltage, bias_high, bias_low, bias_step,
         bath_temp, start_time, current_mode, make_bgmap,
 ):
     target_bg = np.array(target_bg)
@@ -39,7 +39,7 @@ def tickle_and_iv(
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
-    if current_mode.lower() in ['high, hi']:
+    if current_mode.lower() in ['high', 'hi']:
         high_current_mode = True
         bias_high /= S.high_low_current_ratio
         bias_low /= S.high_low_current_ratio
@@ -59,7 +59,8 @@ def tickle_and_iv(
             S, cfg,
             bias_groups = [bg], wait_time=0.01, bias_high=bias_high,
             bias_low=bias_low, bias_step=bias_step,
-            overbias_voltage=12, cool_wait=30, high_current_mode=high_current_mode,
+            overbias_voltage=overbias_voltage, cool_wait=30,
+            high_current_mode=high_current_mode,
             make_channel_plots=False, save_plots=True,
         )
         dat_file = iv_data.replace('info','analyze')     
@@ -75,7 +76,7 @@ def tickle_and_iv(
 def tes_yield(S, target_bg, out_fn, start_time):
     data_dict = np.genfromtxt(out_fn, delimiter=",", dtype=None, names=True)
     
-    data = data_dict['data_path']
+    data = np.atleast_1d(data_dict['data_path'])
     
     good_chans = 0
     all_data_IV = dict()
@@ -89,9 +90,9 @@ def tes_yield(S, target_bg, out_fn, start_time):
             if len(now[sb].keys()) != 0:
                 all_data_IV[bl][sb] = dict()
             for chan, d in now[sb].items():
-                if (d['R'][-1] < 5e-3):
+                if (d['R'][-1] < 2e-3):
                     continue
-                elif len(np.where(d['R'] > 15e-3)[0]) > 0:
+                elif np.abs(np.std(d["R"][-100:]) / np.mean(d["R"][-100:])) > 5e-3:
                     continue
                 all_data_IV[bl][sb][chan] = d
 
@@ -225,7 +226,7 @@ def tes_yield(S, target_bg, out_fn, start_time):
         ax_psat.set_xlabel('P_sat (pW)')
         ax_psat.set_ylabel('count')
         ax_psat.grid()
-        ax_psat.hist(psat, range=(0,15), bins=50,histtype= u'step',linewidth=2,color = 'r')
+        ax_psat.hist(psat, range=(0,50), bins=50,histtype= u'step',linewidth=2,color = 'r')
         ax_psat.axvline(np.median(psat), linestyle='--', color='gray')
         ax_psat.set_title('bl {}, yield {} median Psat {:.2f} pW'.format(
             bl,count_num,np.median(psat))
@@ -250,14 +251,13 @@ def tes_yield(S, target_bg, out_fn, start_time):
     return target_vbias_dict
 
 
-def run(S, cfg, bias_high=20, bias_low=0, bias_step=0.025, bath_temp=100,
-        current_mode='low', make_bgmap=False):
+def run(S, cfg, target_bg, overbias_voltage=15,bias_high=19.9, bias_low=0,
+        bias_step=0.025, bath_temp=100,current_mode='low', make_bgmap=False):
     start_time = S.get_timestamp()
-    target_bg = range(12)
 
     out_fn = tickle_and_iv(
-        S, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,
-        current_mode, make_bgmap)
+        S, target_bg, overbias_voltage, bias_high, bias_low, bias_step, bath_temp,
+        start_time, current_mode, make_bgmap)
     target_vbias = tes_yield(S, target_bg, out_fn, start_time)
     logger.info(f'Saving data to {out_fn}')
     return target_vbias
@@ -269,6 +269,8 @@ if __name__ == "__main__":
     parser.add_argument('--temp', type=str,
                         help="For record-keeping, not controlling,"
     )
+    parser.add_argument('--bgs', type=int, nargs='+', default=None)
+    parser.add_argument('--overbias-voltage', type=float, default=15)
     parser.add_argument('--bias-high', type=float, default=19)
     parser.add_argument('--bias-low', type=float, default=0)
     parser.add_argument('--bias-step', type=float, default=0.025)
@@ -296,7 +298,12 @@ if __name__ == "__main__":
 
     S.load_tune(cfg.dev.exp['tunefile'])
 
-    run(S, cfg, bias_high=args.bias_high, bias_low=args.bias_low,
+    if args.bgs is None:
+        bgs = range(12)
+    else:
+        bgs = args.bgs
+
+    run(S, cfg, target_bg=bgs, bias_high=args.bias_high, bias_low=args.bias_low,
         bias_step=args.bias_step, bath_temp=args.temp, current_mode=args.current_mode,
-        make_bgmap=args.make_bgmap
+        make_bgmap=args.make_bgmap, overbias_voltage=args.overbias_voltage,
     )

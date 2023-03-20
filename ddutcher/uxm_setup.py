@@ -50,10 +50,12 @@ def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
         S.set_synthesis_scale(band, cfg.dev.exp.get("synthesis_scale", 1))
         logger.info("running find freq")
         if band in [0,4]:
-            start_freq = -230
+            start_freq = -240
         else:
-            start_freq = -250
-        S.find_freq(band, start_freq=start_freq, tone_power=cfg.dev.bands[band]["tone_power"], make_plot=True)
+            start_freq = -249
+        S.find_freq(band, start_freq=start_freq, tone_power=cfg.dev.bands[band]["tone_power"],
+                    grad_kernel_width=2, pad=1, min_gap=1,# amp_cut=0.01,
+                    make_plot=True)
         logger.info("running setup notches")
         S.setup_notches(
             band, tone_power=cfg.dev.bands[band]["tone_power"],

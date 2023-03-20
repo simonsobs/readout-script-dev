@@ -1,7 +1,6 @@
 '''
 takes SC noise and takes IV
 '''
-
 import matplotlib
 matplotlib.use('Agg')
 
@@ -20,7 +19,6 @@ import argparse
 import time
 import csv
 
-
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--slot',type=int)
@@ -34,6 +32,8 @@ if args.bgs is None:
 else:
     bias_groups = args.bgs
 slot_num = args.slot
+if slot_num == 6:
+    bias_groups = [0,1,2]
 bath_temp = args.temp
 out_fn = args.output_file
 
@@ -43,7 +43,7 @@ S = cfg.get_smurf_control()
 
 S.load_tune(cfg.dev.exp['tunefile'])
 
-for band in [0,1,2,3,4,5,6,7]:
+for band in [0,1]:
     S.run_serial_gradient_descent(band);
     S.run_serial_eta_scan(band);
     S.set_feedback_enable(band,1) 
@@ -57,11 +57,11 @@ for band in [0,1,2,3,4,5,6,7]:
         lms_gain=cfg.dev.bands[band]['lms_gain'],
     )
 
-S.set_filter_disable(0)
-S.set_rtm_arb_waveform_enable(0)
-S.set_downsample_factor(20)
-for bias_index, bias_g in enumerate(bias_groups):
-    S.set_tes_bias_low_current(bias_g)
+# S.set_filter_disable(0)
+# S.set_rtm_arb_waveform_enable(0)
+# S.set_downsample_factor(20)
+# for bias_index, bias_g in enumerate(bias_groups):
+#     S.set_tes_bias_low_current(bias_g)
 
 bias_v = 0
 bias_array = np.zeros(S._n_bias_groups)
@@ -71,7 +71,7 @@ S.set_tes_bias_bipolar_array(bias_array)
 time.sleep(10)
 
 #take 30s timestream for noise
-sid = sdl.take_g3_data(S, 30)
+sid = sdl.take_g3_data(S, 20)
 am = sdl.load_session(cfg.stream_id, sid, base_dir=cfg.sys['g3_dir'])
 ctime = int(am.timestamps[0])
 noisedict = sdl.noise.get_noise_params(
@@ -107,7 +107,7 @@ for bias_gp in bias_groups:
     row['band'] = 'all'
     row['bias_voltage'] = 'IV 19 to 0'
     row['type'] = 'IV'
-    print(f'Taking IV on bias line {bias_gp}, all band')
+    print(f'Taking IV on bias line {bias_gp}')
       
     row['data_path'] = det_ops.take_iv(
         S,
@@ -116,8 +116,8 @@ for bias_gp in bias_groups:
         wait_time=0.01,
         bias_high=19,
         bias_low=0,
-        bias_step = 0.025,
-        overbias_voltage=19,
+        bias_step=0.025,
+        overbias_voltage=12,
         cool_wait=30,
         high_current_mode=False,
         make_channel_plots=False,
@@ -129,4 +129,4 @@ for bias_gp in bias_groups:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow(row)
 
-    time.sleep(30)
+#    time.sleep(30)

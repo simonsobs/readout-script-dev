@@ -91,7 +91,7 @@ def uxm_optimize(
         if opt_band in [0,4]:
             start_freq = -230
         else:
-            start_freq = -250
+            start_freq = -249
         S.find_freq(
             opt_band, start_freq=start_freq, tone_power=cfg.dev.bands[opt_band]["tone_power"], make_plot=True
         )

@@ -22,10 +22,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 def tickle_and_iv(
-        S, cfg, target_bg, bias_high, bias_low, bias_step,
-        bath_temp, start_time, current_mode, make_bgmap,
+        S, cfg, target_bg, overbias_voltage, bias_high, bias_low, bias_step,
+        parallel, bath_temp, start_time, current_mode, make_bgmap,
 ):
-    target_bg = np.array(target_bg)
+    target_bg = np.atleast_1d(target_bg)
     save_name = '{}_tes_yield.csv'.format(start_time)
     tes_yield_data = os.path.join(S.output_dir, save_name)
     logger.info(f'Saving data to {tes_yield_data}')
@@ -34,38 +34,35 @@ def tickle_and_iv(
     if make_bgmap or cfg.dev.exp.get('bgmap_file') is None:
         bsa = take_bgmap(S, cfg, bgs=target_bg, show_plots=False)
 
-    S.set_tes_bias_bipolar_array([0] * S._n_bias_groups)
-
     fieldnames = ['bath_temp', 'bias_line', 'band', 'data_path','notes']
     with open(out_fn, 'w', newline = '') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
-    if current_mode.lower() in ['high, hi']:
+    if current_mode.lower() in ['high', 'hi']:
         high_current_mode = True
     else:
         high_current_mode = False
 
-    for bg in target_bg:
-        row = {}
-        row['bath_temp'] = str(bath_temp)
-        row['bias_line'] = bg
-        row['band'] = 'all'
+    row = {}
+    row['bath_temp'] = str(bath_temp)
+    row['bias_line'] = 'all'
+    row['band'] = 'all'
 
-        logger.info(f'Taking IV on bias line {bg}, all smurf bands.')
+    logger.info(f'Taking IV on bias lines serially, all smurf bands.')
 
-        iva = take_iv(
-            S, cfg,
-            bias_groups=[bg], wait_time=0.01, bias_high=bias_high,
-            overbias_wait=2, bias_low=bias_low, bias_step=bias_step,
-            overbias_voltage=12, cool_wait=30, high_current_mode=high_current_mode,
-            show_plots=False,
-        )
-        dat_file = iva.filepath
-        row['data_path'] = dat_file
-        with open(out_fn, 'a', newline = '') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writerow(row)
+    iva = take_iv(
+        S, cfg,
+        bias_groups=target_bg, wait_time=0.01, bias_high=bias_high,
+        overbias_wait=2, bias_low=bias_low, bias_step=bias_step,
+        overbias_voltage=overbias_voltage, cool_wait=30, high_current_mode=high_current_mode,
+        show_plots=False, run_serially=(not parallel), serial_wait_time=30,
+    )
+    dat_file = iva.filepath
+    row['data_path'] = dat_file
+    with open(out_fn, 'a', newline = '') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerow(row)
 
     return out_fn
 
@@ -78,11 +75,10 @@ def tes_yield(S, target_bg, out_fn, start_time):
     
     good_chans = 0
     all_data_IV = dict()
-
+    now = np.load(data[0], allow_pickle=True).item()
     for i, bl in enumerate(target_bg):
         if bl not in all_data_IV.keys():
             all_data_IV[bl] = dict()
-        now = np.load(data[i], allow_pickle=True).item()
 
         idx = now['bgmap'] == bl
         for ind in range(np.sum(idx)):
@@ -98,9 +94,9 @@ def tes_yield(S, target_bg, out_fn, start_time):
             d['p_tes'] *= 1e12
             d['p_sat'] *= 1e12
             d['v_bias'] = now['v_bias']
-            if (d['R'][-1] < 5e-3):
+            if (d['R'][-1] < 2e-3):
                 continue
-            elif len(np.where(d['R'] > 15e-3)[0]) > 0:
+            elif np.abs(np.std(d["R"][-100:]) / np.mean(d["R"][-100:])) > 5e-3:
                 continue
             if sb not in all_data_IV[bl].keys():
                 all_data_IV[bl][sb] = dict()
@@ -166,6 +162,8 @@ def tes_yield(S, target_bg, out_fn, start_time):
         ax_rv = axs[bl//2, bl%2*2]
         if np.isnan(target_vbias_dict[bl]):
             continue
+        if len(operating_r[bl].keys()) == 0:
+            continue
         count_num = 0
         for sb in all_data_IV[bl].keys():
             for ch,d in all_data_IV[bl][sb].items():
@@ -184,11 +182,14 @@ def tes_yield(S, target_bg, out_fn, start_time):
 
         ax_vb = axs[bl//2,bl%2*2+1]
         thisbl_vbias = target_vbias_dict[bl]
-        h = ax_vb.hist(
-            operating_r[bl][thisbl_vbias], range=(0,1), bins=40
-        )
+        try:
+            to_plot = operating_r[bl][thisbl_vbias]
+        except KeyError as e:
+            print(thisbl_vbias, operating_r[bl].keys())
+            raise e
+        h = ax_vb.hist(to_plot, range=(0,1), bins=40)
         ax_vb.axvline(
-            np.median(operating_r[bl][target_vbias_dict[bl]]),
+            np.median(to_plot),
             linestyle='--',
             color='gray',
         )
@@ -259,14 +260,13 @@ def tes_yield(S, target_bg, out_fn, start_time):
     return target_vbias_dict
 
 
-def run(S, cfg, bias_high=20, bias_low=0, bias_step=0.025, bath_temp=100,
-        current_mode='low', make_bgmap=False):
+def run(S, cfg, target_bg, bias_high=19, bias_low=0, bias_step=0.025, bath_temp=100,
+        current_mode='low', make_bgmap=False, overbias_voltage=15, parallel=False):
     start_time = S.get_timestamp()
-    target_bg = np.arange(12)
 
     out_fn = tickle_and_iv(
-        S, cfg, target_bg, bias_high, bias_low, bias_step, bath_temp, start_time,
-        current_mode, make_bgmap)
+        S, cfg, target_bg, overbias_voltage, bias_high, bias_low, bias_step,
+        parallel, bath_temp, start_time, current_mode, make_bgmap)
     target_vbias = tes_yield(S, target_bg, out_fn, start_time)
     logger.info(f'Saving data to {out_fn}')
     return target_vbias
@@ -278,10 +278,13 @@ if __name__ == "__main__":
     parser.add_argument('--temp', type=str,
                         help="For record-keeping, not controlling,"
     )
+    parser.add_argument('--bgs', type=int, nargs='+', default=None)
+    parser.add_argument('--overbias-voltage', type=float, default=15)
     parser.add_argument('--bias-high', type=float, default=19)
     parser.add_argument('--bias-low', type=float, default=0)
     parser.add_argument('--bias-step', type=float, default=0.025)
-    parser.add_argument('--current-mode', type=str, default='low')
+    parser.add_argument('--current-mode', type=str, default='low',choices=['high','hi','low'])
+    parser.add_argument('--parallel', action='store_true', default=False)
     parser.add_argument('--make-bgmap', default=False, action='store_true')
     parser.add_argument(
         "--loglevel",
@@ -305,7 +308,13 @@ if __name__ == "__main__":
 
     S.load_tune(cfg.dev.exp['tunefile'])
 
-    run(S, cfg, bias_high=args.bias_high, bias_low=args.bias_low,
+    if args.bgs is None:
+        bgs = range(12)
+    else:
+        bgs = args.bgs
+
+    run(S, cfg, bgs, bias_high=args.bias_high, bias_low=args.bias_low,
         bias_step=args.bias_step, bath_temp=args.temp, current_mode=args.current_mode,
-        make_bgmap=args.make_bgmap
+        make_bgmap=args.make_bgmap, overbias_voltage=args.overbias_voltage,
+        parallel=args.parallel
     )

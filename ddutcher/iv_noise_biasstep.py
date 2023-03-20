@@ -1,7 +1,6 @@
 '''
 takes SC and ob noise, IV, and in-transition bias steps and noise.
 '''
-
 import matplotlib
 matplotlib.use('Agg')
 
@@ -19,7 +18,6 @@ from scipy.interpolate import interp1d
 import argparse
 import time
 import csv
-
 
 parser = argparse.ArgumentParser()
 
@@ -43,9 +41,9 @@ S = cfg.get_smurf_control()
 S.load_tune(cfg.dev.exp['tunefile'])
 
 for band in [0,1,2,3,4,5,6,7]:
-    S.run_serial_gradient_descent(band);
-    S.run_serial_eta_scan(band);
-    S.set_feedback_enable(band,1) 
+    S.run_serial_gradient_descent(band)
+    S.run_serial_eta_scan(band)
+    S.set_feedback_enable(band, 1)
     S.tracking_setup(
         band, reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],
         fraction_full_scale=cfg.dev.bands[band]['frac_pp'], make_plot=False,
@@ -105,8 +103,8 @@ print(f'Taking IV serially on all bias lines, all bands')
 
 iva = ops.take_iv(
     S, cfg, bias_groups=bias_groups, wait_time=0.01, bias_high=18,
-    overbias_wait=2, bias_low=0, bias_step=0.025, overbias_voltage=12,
-    cool_wait=30, high_current_mode=False, run_serially=True,
+    overbias_wait=2, bias_low=0, bias_step=0.025, overbias_voltage=19,
+    cool_wait=20, high_current_mode=False, run_serially=True,
     serial_wait_time=30, run_analysis=True, show_plots=False,
 )
 dat_file = iva.filepath
@@ -115,7 +113,7 @@ with open(out_fn, 'a', newline = '') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
     writer.writerow(row)
 
-S.overbias_tes_all(bias_groups=bias_groups, overbias_voltage=12, tes_bias=18,
+S.overbias_tes_all(bias_groups=bias_groups, overbias_voltage=19, tes_bias=18,
                    overbias_wait=2, cool_wait=3, high_current_mode=False)
 
 #take 30s timestream for noise
@@ -172,7 +170,8 @@ for rfrac in [0.7, 0.5, 0.3]:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow(row)
 
-    bsa = ops.take_bias_steps(S, cfg, bgs=bias_groups)
+    bsa = ops.take_bias_steps(
+        S, cfg, bgs=bias_groups, analysis_kwargs={'transition':True, 'fit_tmin':7.5e-4})
     row['type'] = 'bias_step'
     row['data_path'] = bsa.filepath
     
