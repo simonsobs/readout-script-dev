@@ -30,16 +30,18 @@ def analyze_vna(
         Absolute filepath to the directory containing fine-sweep VNA
         data for one RF chain.
     output_dir : str, default: None
-        Absolute filepath to the directory for returned plots and data.
+        Absolute filepath to the directory for plots and data to be saved in.
         If the directory does not exist, it will be created.
+        If left as None, results are not saved.
     bw : float, default: 0.2
         The bandwidth of each sweep file in GHz.
 
     Returns
     -------
-    res_params : pandas.DataFrame
-        Returned if `return_data` is True, always saved to disk as csv.
-        Columns are index, resonator_index, f0, Qi, Qc, Q, br, depth.
+    results : dict
+        Returned if `return_data` is True. Contains arrays of frequency,
+        s21_db response, peak_freq indices and a dictionary of resonator
+        parameters: resonator_index, f0, Qi, Qc, Q, br, depth.
     """
     if output_dir is not None:
         if not os.path.exists(output_dir):
@@ -72,32 +74,39 @@ def analyze_vna(
         freq = np.concatenate((freq, now_freq))
         resp = np.concatenate((resp, now_resp_real + 1j * now_resp_im))
 
+    s21_db = 20 * np.log10(np.abs(resp))
+
     detrended_s21 = correct_trend(freq, resp)
     peak_inds, props = scipy.signal.find_peaks(
             -1 * detrended_s21,
-            height=2,
+            height=1,
             prominence=0.2,
         )
-        
 
     if plot_peaks:
-        plot_vna_peaks(
-            freq, resp, peak_inds, suptitle=label, output_dir=output_dir,
-        )
+#         plot_vna_peaks(
+#             freq, resp, peak_inds, suptitle=label, output_dir=output_dir,
+#         )
         plot_vna_muxband_peaks(
-            freq, resp, peak_inds, suptitle=label, output_dir=output_dir,
+            freq, s21_db, peak_inds, suptitle=label, output_dir=output_dir,
         )
 
     res_params = fit_vna_resonances(freq, resp, peak_inds)
+    rpd = res_params.to_dict(orient='list')
+    for k, val in rpd.items():
+        rpd[k] = np.asarray(val)
+
+    results = {'freq':freq, 'resp': resp, 's21_db':s21_db,
+               'peak_inds': peak_inds, 'res_params': rpd,
+              }
 
     if plot_params:
         plot_vna_params(res_params, suptitle=label,  output_dir=output_dir)
 
     if output_dir is not None:
-        s21_sweep = {'freq':freq, 's21_db':20 * np.log10(np.abs(resp))}
         data_fname = "_".join([label, "vna_sweep.npy"]).strip("_")
         np.save(
-            os.path.join(output_dir, data_fname), s21_sweep, allow_pickle=True,
+            os.path.join(output_dir, data_fname), results, allow_pickle=True,
         )
         params_fname = "_".join([label, "vna_params.csv"]).strip("_")
         res_params.to_csv(
@@ -105,10 +114,10 @@ def analyze_vna(
         )
 
     if return_data:
-        return res_params
+        return results
 
 
-def plot_vna_muxband_peaks(freq, resp, peak_inds, suptitle='', output_dir=None):
+def plot_vna_muxband_peaks(freq, s21_db, peak_inds, suptitle='', output_dir=None):
     # mux band definitions
     half_lims = np.array([
         (4.018,4.147),
@@ -145,31 +154,31 @@ def plot_vna_muxband_peaks(freq, resp, peak_inds, suptitle='', output_dir=None):
 
         ax.plot(
             freq[inds] * 1e-9 ,
-            20 * np.log10(np.abs(resp[inds])),
+            s21_db[inds],
             c='k',
             linewidth=1,
             label=label.format(num_peaks=num_peaks)
         )
     for i, band in enumerate(mux_band_lims):
         ax.axvspan(band[0],band[1], fc=muxband_colors[i], alpha=0.3)
-        ax.text(band[0]+0.01, -29, "Band %02d" % i, color=muxband_colors[i],
+        ax.text(band[0]+0.01, -39, "Band %02d" % i, color=muxband_colors[i],
                 fontsize=6, weight='heavy')
     for sb, sb_f in enumerate(sb_cutoffs):
         ax.axvline(sb_f, color='k', linestyle=':')
         if sb>3:
             break
-        ax.text(sb_f+0.15, 13.5, "SMuRF Band %0d/%0d" % (sb,sb+4),
+        ax.text(sb_f+0.15, 3.5, "SMuRF Band %0d/%0d" % (sb,sb+4),
                 color='k', fontsize=6, weight='heavy')
 
     ax.set_xlabel("Frequency (GHz)")
     ax.set_ylabel("S21 Magnitude (dB)")
     ax.set_xticks(np.arange(4, 6.3, 0.1), minor=True)
-    ax.set_ylim(-30,15)
+    ax.set_ylim(-40,5)
     ax.set_xlim(3.9,6.1)
     ax.set_title("%0d resonances" % len(peak_inds))
-    ax.legend(loc='upper right', ncol=3, fontsize='small')
     plt.suptitle(suptitle)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) 
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    ax.legend(ncol=3, fontsize='small', loc=(0.39,0.8))
 
     if output_dir is not None:
         fname = "_".join([suptitle, "vna_muxband_peaks.png"]).strip("_")
