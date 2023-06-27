@@ -12,6 +12,7 @@ def collect_psatvstemp_data(
     metadata_fp,
     ls_ch=15,
     cut_increasing_psat=True,
+    psat_level=0.9,
     optical_bl=[],
     temp_list=None,
     temps_to_cut=None,
@@ -42,6 +43,8 @@ def collect_psatvstemp_data(
     cut_increasing_psat : bool, default True.
         Cut detector data points that have a higher Psat than
         the preceding point.
+    psat_level : float, default 0.6
+        The fraction of Rn at which to evaluate saturation power.
     optical_bl : array-like
         Data from these bias lines will be plotted separately.
     temp_list : array-like
@@ -65,7 +68,7 @@ def collect_psatvstemp_data(
     freq_plot : bool, default False.
         Plot the data by observing frequency.
     assem_type : {'ufm', 'spb'}
-    array_freq : {'mf', 'uhf'}
+    array_freq : {'lf', mf', 'uhf'}
     plot_title : str
     figsize : (float, float), optional
     return_data : bool, default False.
@@ -112,7 +115,9 @@ def collect_psatvstemp_data(
         except ValueError:
             temp, bl, sb, fp, note = line
         # Ignore files that aren't IV curves
-        if note != "IV":
+        if note not in [False, "", "IV"]:
+            continue
+        if bl == "all":
             continue
 
         ## Temperature correction
@@ -146,16 +151,18 @@ def collect_psatvstemp_data(
 
         data_dict = process_iv_data(
             fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn,
-            temps_to_cut
+            temps_to_cut, psat_level=psat_level,
         )
-
+    if not data_dict:
+        raise ValueError("Problem reading or processing the data: "
+                         "No valid data remaining.")
     if bl_plot:
         plot_by_bl(data_dict, plot_title, figsize)
 
     if freq_plot:
         assert assem_type == "ufm"
         plot_by_freq(data_dict, array_freq, optical_bl, figsize, plot_title)
-    print(used_temps)
+    print(sorted(list(used_temps)))
 
     results_dict = {
         'metadata': {
@@ -170,6 +177,7 @@ def collect_psatvstemp_data(
 
     results_dict["metadata"]["dataset"] = metadata_fp
     results_dict["metadata"]["allowed_rn"] = [min_rn, max_rn]
+    results_dict["metadata"]["psat_level"] = psat_level
     results_dict["metadata"]["cut_increasing_psat"] = cut_increasing_psat
     results_dict["metadata"]["thermometer_id"] = thermometer_id
     results_dict["metadata"]["temp_list"] = temp_list
@@ -183,7 +191,9 @@ def collect_psatvstemp_data(
 
 
 def process_iv_data(
-    fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn, temps_to_cut):
+    fp, data_dict, temp_corr, bl, cut_increasing_psat,
+    min_rn, max_rn, temps_to_cut, psat_level=0.9,
+):
     if "iv_raw_data" in fp:
         iv_analyzed_fp = fp.replace("iv_raw_data", "iv")
     elif "iv_info" in fp:
@@ -217,8 +227,6 @@ def process_iv_data(
             bl_to_do = [int(bl)]
 
         for bl in bl_to_do:
-            if bl not in data_dict.keys():
-                data_dict[bl] = {}
             # temperature cuts
             if isinstance(temps_to_cut, dict):
                 temp_cut = temps_to_cut[bl]
@@ -247,7 +255,8 @@ def process_iv_data(
                 d["p_tes"] *= 1e12
                 d["p_sat"] *= 1e12
 
-                psat = do_iv_cuts(d, min_rn, max_rn)
+                psat = do_iv_cuts(
+                    d, min_rn, max_rn, psat_level=psat_level)
                 if psat and cut_increasing_psat:
                     try:
                         prev_psat = data_dict[bl][sb][ch]["psat"][-1]
@@ -258,6 +267,8 @@ def process_iv_data(
 
                 if psat and not np.isnan(psat):
                     # key creation
+                    if bl not in data_dict.keys():
+                        data_dict[bl] = {}
                     if sb not in data_dict[bl].keys():
                         data_dict[bl][sb] = dict()
                     if ch not in data_dict[bl][sb].keys():
@@ -273,8 +284,6 @@ def process_iv_data(
     else:
         # pysmurf and oldest sodetlib iv.py files
         bl = int(bl)
-        if bl not in data_dict.keys():
-            data_dict[bl] = {}
         # temperature cuts
         if isinstance(temps_to_cut, dict):
             temp_cut = temps_to_cut[bl]
@@ -286,7 +295,8 @@ def process_iv_data(
             if sb == "high_current_mode":
                 continue
             for ch, d in iv_analyzed[sb].items():
-                psat = do_iv_cuts(d, min_rn, max_rn)
+                psat = do_iv_cuts(
+                    d, min_rn, max_rn, psat_level=psat_level)
                 if psat and cut_increasing_psat:
                     try:
                         prev_psat = data_dict[bl][sb][ch]["psat"][-1]
@@ -297,6 +307,8 @@ def process_iv_data(
 
                 if psat:
                     # key creation
+                    if bl not in data_dict.keys():
+                        data_dict[bl] = {}
                     if sb not in data_dict[bl].keys():
                         data_dict[bl][sb] = dict()
                     if ch not in data_dict[bl][sb].keys():
@@ -312,17 +324,14 @@ def process_iv_data(
     return data_dict
 
 
-def do_iv_cuts(d, min_rn, max_rn):
+def do_iv_cuts(d, min_rn, max_rn, psat_level=0.9):
     # same cuts as for iv plots
-    ind = np.where(d["p_tes"] > 15)[0]
-    if len(ind) == 0:
-        return False
     if np.abs(np.std(d["R"][-100:]) / np.mean(d["R"][-100:])) > 5e-3:
         return False
     if d["R"][-1] < 2e-3:
         return False
     try:
-        psat_idx = np.where(d["R"] < 0.9 * d["R_n"])[0][-1]
+        psat_idx = np.where(d["R"] < psat_level * d["R_n"])[0][-1]
     except:
         return False
     psat = d["p_tes"][psat_idx]
@@ -337,12 +346,12 @@ def do_iv_cuts(d, min_rn, max_rn):
 
 def plot_by_bl(data_dict, plot_title="", figsize=None):
     tot = 0
-    ncols = np.min((len(data_dict.keys()), 4))
-    nrows = int(np.ceil(len(data_dict.keys()) / 4))
+    ncols = 4 #np.min((len(data_dict.keys()), 4))
+    nrows = 3 #int(np.ceil(len(data_dict.keys()) / 4))
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
     axes = np.atleast_2d(axes)
     for idx, bl in enumerate(sorted(list(data_dict.keys()))):
-        inds = np.unravel_index(idx, (nrows, ncols))
+        inds = np.unravel_index(bl, (nrows, ncols))
         ax = axes[inds]
         tes_yield = np.sum(
             [len(data_dict[bl][sb].keys()) for sb in data_dict[bl].keys()]
@@ -355,6 +364,7 @@ def plot_by_bl(data_dict, plot_title="", figsize=None):
                 else:
                     run = "Bath"
                 ax.plot(d["temp"], d["psat"], marker=".", alpha=0.4, linewidth=1)
+#        ax.set_ylim(0,50)
         ax.set_title(f"BL {bl}, yield {tes_yield}", fontsize=10)
         ax.grid(linestyle="--")
         if inds[1] == 0:
@@ -367,14 +377,19 @@ def plot_by_bl(data_dict, plot_title="", figsize=None):
 
 
 def plot_by_freq(
-    data_dict, array_freq="mf", optical_bl=[], figsize=None, plot_title=""
+    data_dict, array_freq="mf", optical_bl=[], figsize=None, plot_title="",
 ):
-    if array_freq.lower() == "uhf":
-        freq1, freq2 = "220", "280"
+    if array_freq.lower() == "lf":
+        freq1, freq2 = "30", "40"
+        bl_freq_map = {bl: freq1 for bl in [0, 3]}
+        bl_freq_map.update({bl: freq2 for bl in [1, 2]})
     else:
-        freq1, freq2 = "90", "150"
-    bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
-    bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
+        if array_freq.lower() == "uhf":
+            freq1, freq2 = "220", "280"
+        else:
+            freq1, freq2 = "90", "150"
+        bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
+        bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
     freq_colors = {
         freq1: "C0",
         freq2: "C2",
@@ -382,7 +397,7 @@ def plot_by_freq(
         "Dark_" + freq2: "C1",
     }
     labeled_dict = dict()
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=figsize)#, sharey=True)
     for idx, bl in enumerate(sorted(list(data_dict.keys()))):
         freq = bl_freq_map[bl]
         if freq == freq1:
@@ -429,9 +444,11 @@ def fit_bathramp_data(
     optical_bl=None,
     restrict_n=False,
     fit_g=False,
+    p0 = [370, 0.180, 3.5],
     return_data=False,
     plot=True,
     plot_title="",
+    param_plot_kw=None,
 ):
     """
     Fit thermal parameters from bath ramp data.
@@ -441,7 +458,7 @@ def fit_bathramp_data(
     data_dict : dict
         Dictionary returned by collect_psatvstemp_data
     assem_type : {'ufm', 'spb'}
-    array_freq : {'mf', 'uhf'}
+    array_freq : {'lf', mf', 'uhf'}
     optical_bl : array-like
         Psats from these bias lines will be plotted separately.
     restrict_n : bool
@@ -463,8 +480,9 @@ def fit_bathramp_data(
         and absolute readout channel.
 
     """
+    metadata = data_dict["metadata"]
+    data_dict = data_dict['data']
     if not fit_g:
-        p0 = [370, 0.190, 3]
         if restrict_n:
 
             def PsatofT(Tb, k, Tc, n):
@@ -480,7 +498,6 @@ def fit_bathramp_data(
                 return power
 
     else:
-        p0 = [100, 0.190, 3]
         if restrict_n:
 
             def PsatofT(Tb, G, Tc, n):
@@ -496,6 +513,10 @@ def fit_bathramp_data(
     param_dict = {}
 
     for bl in data_dict.keys():
+        if isinstance(p0, dict):
+            this_p0 = p0[bl]
+        else:
+            this_p0 = p0
         for sb in data_dict[bl].keys():
             for ch, d in data_dict[bl][sb].items():
                 if len(d["psat"]) < 4:
@@ -505,7 +526,7 @@ def fit_bathramp_data(
                         PsatofT,
                         d["temp"],
                         np.asarray(d["psat"]),
-                        p0=p0,
+                        p0=this_p0,
                         absolute_sigma=True,
                     )
                 except Exception as e:
@@ -515,9 +536,9 @@ def fit_bathramp_data(
                 kg, tc, n = popt
                 sigma_kg, sigma_tc, sigma_n = np.sqrt(np.diag(pcov))
 
-                ## April 2022: testing using a cut on Tc fit uncertainty.
-                #if sigma_tc > 0.001:
-                #  continue
+#                 # April 2022: testing using a cut on Tc fit uncertainty.
+#                 if sigma_tc > 0.001:
+#                     continue
 
                 if bl not in param_dict.keys():
                     param_dict[bl] = dict()
@@ -547,21 +568,29 @@ def fit_bathramp_data(
 
     if plot:
         plot_params(
-            param_dict, assem_type, array_freq, optical_bl, restrict_n, plot_title
+            param_dict, assem_type, array_freq, optical_bl, restrict_n, plot_title,
+            param_plot_kw
         )
 
     results_dict = {}
     results_dict["data"] = param_dict
-    results_dict["metadata"] = {
-        "units": {
-            "psat100mk": "pW",
-            "tc": "K",
-            "g": "pW/K",
-            "n": "",
-            "k": "",
-            "R_n": "ohms",
+    results_dict["metadata"] = metadata
+    results_dict["metadata"].update(
+        {
+            "units" : {
+                "psat100mk": "pW",
+                "tc": "K",
+                "g": "pW/K",
+                "n": "",
+                "k": "",
+                "R_n": "ohms",
+            },
+            "fit_g" : fit_g,
+            "p0" : p0,
+            "restrict_n" : restrict_n,
         }
-    }
+    )
+
     if return_data:
         return results_dict
 
@@ -573,8 +602,10 @@ def plot_params(
     optical_bl=[],
     restrict_n=True,
     plot_title="",
+    param_plot_kw=None,
+
 ):
-    param_plot_kw = {
+    param_plot_defaults = {
         "psat100mk": {
             "range": (0, 20),
             "label": "%sGHz: %.1f $\pm$ %.1f pW",
@@ -586,7 +617,7 @@ def plot_params(
             "xlabel": "Tc [K]",
         },
         "g": {
-            "range": (20, 600),
+            "range": (20, 400),
             "label": "%sGHz: %0d $\pm$ %0d pW/K",
             "xlabel": "G [pW/K]",
         },
@@ -595,6 +626,15 @@ def plot_params(
             "label": "%sGHz: %.1f $\pm$ %.1f",
         },
     }
+    if param_plot_kw is not None:
+        try:
+            for param in param_plot_kw.keys():
+                for k,v in param_plot_kw[param].items():
+                    param_plot_defaults[param][k] = v
+        except KeyError as e:
+            raise e # I don't have a better idea yet
+    param_plot_kw = param_plot_defaults
+
     if restrict_n:
         param_plot_kw["n"]["xlabel"] = "n (restricted to 2--4)"
     else:
@@ -604,14 +644,22 @@ def plot_params(
         freq1, freq2 = "220", "280"
         freq1_psat = [16.9, 28.1]
         freq2_psat = [18.3, 30.5]
-    else:
+    elif array_freq.lower() == "mf":
         freq1, freq2 = "90", "150"
         freq1_psat = [2.0, 3.3]
         freq2_psat = [5.4, 9.0]
+    else:
+        freq1, freq2 = "30", "40"
+        freq1_psat = [0.62, 1.04]
+        freq2_psat = [2.66, 4.42]
 
     if assem_type.lower() == "ufm":
-        bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
-        bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
+        if array_freq.lower() == "lf":
+            bl_freq_map = {bl: freq1 for bl in [0, 3]}
+            bl_freq_map.update({bl: freq2 for bl in [1, 2]})
+        else:
+            bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
+            bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
         freq_colors = [
             (freq1, "C0"),
             (freq2, "C2"),
@@ -642,6 +690,7 @@ def plot_params(
                 plotting_dict[freq][key] += now_param
 
     fig, ax = plt.subplots(nrows=4, figsize=(9, 9))
+    title = "# TESs:"
     for freq, c in freq_colors:
         if freq not in plotting_dict.keys():
             continue
@@ -655,6 +704,7 @@ def plot_params(
             histtype = "bar"
             ec = None
             lalpha = 1
+        title += f" {freq}GHz: %0d," % len(plotting_dict[freq]['tc'])
 
         for i, param in enumerate(["psat100mk", "tc", "g", "n"]):
             d = param_plot_kw[param]
@@ -683,13 +733,14 @@ def plot_params(
             ax[i].set_xlabel(d["xlabel"])
             ax[i].set_ylabel("# of TESs")
             ax[i].set_title(" ")
-            ax[i].legend(fontsize="small", loc="best")
+            ax[i].legend(fontsize="small", loc="upper right")
 
+    ax[0].set_title(title)
     ax[0].axvspan(
         freq1_psat[0], freq1_psat[1], hatch="\\", ec="C0", alpha=0.2, fill=False
     )
     ax[0].axvspan(
-        freq2_psat[0], freq2_psat[1], hatch="\\", ec="C2", alpha=0.2, fill=False
+        freq2_psat[0], freq2_psat[1], hatch="//", ec="C2", alpha=0.2, fill=False
     )
 
     plt.suptitle(plot_title, fontsize=16)
@@ -701,7 +752,7 @@ def plot_params(
     for freq, d in plotting_dict.items():
         all_rn += d["R_n"]
     med = np.nanmedian(all_rn)
-    plt.hist(all_rn, ec="k", histtype="step", bins=20, range=(5e-3, 10e-3))
+    plt.hist(all_rn, ec="k", histtype="step", bins=20, range=(2e-3, 10e-3))
     plt.axvline(
         med,
         linestyle="--",
@@ -712,6 +763,56 @@ def plot_params(
     plt.ylabel("Count")
     plt.title(plot_title)
     plt.legend()
+
+
+def plot_param_fit(
+    data_dict,
+    results_dict,
+    figsize=None,
+    plot_title="",
+):
+    "Plot the thermal parameter fits atop the data"
+    if 'data' in data_dict.keys():
+        data_dict = data_dict['data']
+    if 'data' in results_dict.keys():
+        results_dict = results_dict['data']
+    Tb = np.linspace(.040, .20, 100)
+    def PsatofT(Tb, k, Tc, n):
+        power = k * (Tc**n - Tb**n)
+        return power
+
+    tot = 0
+    ncols = 4
+    nrows = 3
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
+    axes = np.atleast_2d(axes)
+    for idx, bl in enumerate(sorted(list(data_dict.keys()))):
+        inds = np.unravel_index(bl, (nrows, ncols))
+        ax = axes[inds]
+        tes_yield = np.sum(
+            [len(data_dict[bl][sb].keys()) for sb in data_dict[bl].keys()]
+        )
+        tot += tes_yield
+        for sb in data_dict[bl].keys():
+            for ch, d in data_dict[bl][sb].items():
+                try:
+                    pd = results_dict[bl][sb][ch]
+                    fit_p = PsatofT(Tb, pd['k'], pd['tc'], pd['n'])
+                except KeyError:
+                    continue
+                l = ax.plot(d["temp"], d["psat"], marker=".", alpha=0.4, linestyle=None)
+                ax.plot(Tb[fit_p >= 0], fit_p[fit_p >=0 ], marker=None,
+                        linestyle='-', linewidth=1, color=l[0].get_color(), alpha=0.4)
+#        ax.set_ylim(0,50)
+        ax.set_title(f"BL {bl}, yield {tes_yield}", fontsize=10)
+        ax.grid(linestyle="--")
+        if inds[1] == 0:
+            ax.set_ylabel("Psat [pW]")
+        if inds[0] == nrows - 1:
+            ax.set_xlabel("Bath Temperature [K]")
+    plt.suptitle(plot_title, fontsize=12)
+    plt.tight_layout()
+    print(f"Total TES yield: {tot}")
 
 
 def analyze_bathramp(
@@ -729,7 +830,10 @@ def analyze_bathramp(
     temp_scaling=1,
     min_rn=0,
     max_rn=np.inf,
+    param_plot_kw=None,
     cut_increasing_psat=True,
+    psat_level=0.9,
+    p0 = [370, 0.180, 3.5],
     plot=True,
     plot_title="",
     figsize=None,
@@ -745,6 +849,7 @@ def analyze_bathramp(
         temp_offset=temp_offset,
         temp_scaling=temp_scaling,
         cut_increasing_psat=cut_increasing_psat,
+        psat_level=psat_level,
         min_rn=min_rn,
         max_rn=max_rn,
         temps_to_cut=temps_to_cut,
@@ -756,27 +861,18 @@ def analyze_bathramp(
     )
 
     results_dict = fit_bathramp_data(
-        data_dict['data'],
+        data_dict,
         array_freq=array_freq,
         assem_type=assem_type,
         optical_bl=optical_bl,
         restrict_n=restrict_n,
         fit_g=fit_g,
-        return_data=return_data,
+        p0=p0,
         plot=plot,
         plot_title=plot_title,
+        param_plot_kw=param_plot_kw,
+        return_data=True,
     )
-
-    results_dict["metadata"]["dataset"] = metadata_fp
-    results_dict["metadata"]["restrict_n"] = restrict_n
-    results_dict["metadata"]["allowed_rn"] = [min_rn, max_rn]
-    results_dict["metadata"]["cut_increasing_psat"] = cut_increasing_psat
-    results_dict["metadata"]["thermometer_id"] = thermometer_id
-    results_dict["metadata"]["temp_list"] = temp_list
-    results_dict["metadata"]["optical_bl"] = optical_bl
-    results_dict["metadata"]["temp_offset"] = temp_list
-    results_dict["metadata"]["temp_scaling"] = temp_list
-    results_dict["metadata"]["temps_to_cut"] = temps_to_cut
 
     if return_data:
         return data_dict, results_dict
@@ -789,6 +885,7 @@ def plot_bathramp_iv(
     temp=100,
     ls_ch=15,
     plot_title="",
+    figsize=(18,18),
     return_data=False,
     **plot_kwargs,
 ):
@@ -802,7 +899,7 @@ def plot_bathramp_iv(
     data_dict = {}
     tot = 0
 
-    fig, axs = plt.subplots(3, 4,figsize=(18,18), sharex=True, sharey=True)
+    fig, axs = plt.subplots(3, 4,figsize=figsize, sharex=True, sharey=True)
 
     for line in metadata:
         try:
