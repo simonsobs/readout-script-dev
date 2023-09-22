@@ -15,11 +15,11 @@ def make_filesafe(filename):
 def is_float(num_string):
     try:
         float(num_string)
+        #if float(False) == 0, give that a special exception
+        if type(num_string) == bool:
+            return False
         if float(num_string) == 0:
             return True
-        #if float(False) == 0, give that a special exception
-        if num_string == False: # wait...shouldn't that be True, for 0?
-            return False
         # The below handles np.nan and other things like it, hopefully. 
         if (float(num_string) <=0) ^ (0 < float(num_string)):
             return True
