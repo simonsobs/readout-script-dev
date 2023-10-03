@@ -22,14 +22,19 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--slot',type=int)
 parser.add_argument('--temp',type=str)
-parser.add_argument('--bgs', type=int, nargs='+', default=None)
+parser.add_argument('--bgs', action='append', default=None) #type=int, nargs='+', 
 parser.add_argument('--output_file',type=str)
+parser.add_argument('--UHF_wait',type=int,default=False) # just so I can reuse slot args
 
 args = parser.parse_args()
 if args.bgs is None:
     bias_groups = [0,1,2,3,8,9,10,11,4,5,6,7]#range(12)
 else:
-    bias_groups = args.bgs
+    if ' ' in args.bgs[0]:
+        input_bgs = (args.bgs[0]).split(" ")
+    else:
+        input_bgs = args.bgs
+    bias_groups = [int(bg) for bg in input_bgs]
 slot_num = args.slot
 bath_temp = args.temp
 out_fn = args.output_file

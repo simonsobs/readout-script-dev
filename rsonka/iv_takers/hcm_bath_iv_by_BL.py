@@ -22,14 +22,19 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--slot',type=int)
 parser.add_argument('--temp',type=str)
-parser.add_argument('--bgs', type=int, nargs='+', default=None)
+parser.add_argument('--bgs', action='append', default=None) #type=int, nargs='+', 
 parser.add_argument('--output_file',type=str)
+parser.add_argument('--UHF_wait',type=int,default=False) # Do if the very first IV at a given 
 
 args = parser.parse_args()
 if args.bgs is None:
     bias_groups = [0,1,2,3,8,9,10,11,4,5,6,7]#range(12)
 else:
-    bias_groups = args.bgs
+    if ' ' in args.bgs[0]:
+        input_bgs = (args.bgs[0]).split(" ")
+    else:
+        input_bgs = args.bgs
+    bias_groups = [int(bg) for bg in input_bgs]
 slot_num = args.slot
 bath_temp = args.temp
 out_fn = args.output_file
@@ -71,12 +76,6 @@ S.load_tune(cfg.dev.exp['tunefile'])
 fieldnames = ['bath_temp','bias_voltage', 'bias_line', 'band', 'data_path','type']
 
 
-
-
-with open(out_fn, 'a', newline = '') as csvfile:
-    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-    writer.writerow(row)
-
 for ind, bias_gp in enumerate(bias_groups):
     row = {}
     row['bath_temp'] = bath_temp
@@ -86,7 +85,7 @@ for ind, bias_gp in enumerate(bias_groups):
     row['type'] = 'IV'
     print(f'Taking IV on bias line {bias_gp}')
 
-    if ind == 0:
+    if int(args.UHF_wait): # FOR UHF ONLY!
         cool_wait = 300
     else:
         cool_wait = 30
@@ -111,4 +110,4 @@ for ind, bias_gp in enumerate(bias_groups):
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow(row)
 
-    time.sleep(30)
+    #time.sleep(30) # Daniel only had this for in-between ALL the biaslines happening. 
