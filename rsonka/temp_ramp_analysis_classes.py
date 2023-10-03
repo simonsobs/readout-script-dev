@@ -40,7 +40,7 @@ import random as rand
 
 sys.path.append('/home/rsonka/repos/readout-script-dev/rsonka')
 import python_utilities as pu
-from python_utilities.numpy_plotting import make_filesafe as make_filesafe
+from python_utilities.ritas_python_util_main import make_filesafe as make_filesafe
 
 # raw loading
 import sodetlib.det_config
