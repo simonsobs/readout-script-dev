@@ -15,7 +15,9 @@ import matplotlib
 matplotlib.use('Agg')
 
 sys.path.append("/readout-script-dev/ddutcher")
+sys.path.append("readout-script-dev/rsonka/uxm_setup_optimize")
 from optimize_fracpp import optimize_fracpp
+import uxm_setup_optimize_confluence as confl
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,8 @@ def uxm_optimize(
     low_noise_thresh=120,
     med_noise_thresh=150,
     high_noise_thresh=250,
+    bias_TESs=0,
+    confluence_fp='default',
 ):
     """
     Optimize tone power and uc atten for the specified bands.
@@ -53,10 +57,15 @@ def uxm_optimize(
     uc_tuner.UCTuner
     """
     logger.info(f"plotting directory is:\n{S.plot_dir}")
+    
+    if confluence_fp == 'default':
+        confluence_fp = confl.start_confluence_log_file(S,cfg,bands)
+    
+
 
     if bands is None:
         bands = S.config.get("init").get("bands")
-
+    
     bands = np.atleast_1d(bands)
     for opt_band in bands:
         # Do initial setup steps.
@@ -76,6 +85,15 @@ def uxm_optimize(
 
         S.amplitude_scale[opt_band] = cfg.dev.bands[opt_band]["tone_power"]
         logger.info(f"band {opt_band} tone power {S.amplitude_scale[opt_band]}")
+        
+        if bias_TESs: # no need to overheat, just set the AMC
+            if opt_band < 4:
+                bias_bls = np.arange(6)
+            else:
+                bias_bls = np.arange(6,12,1)
+            S.overbias_tes_all(bias_groups=bias_bls,tes_bias=bias_TESs)
+            logger.info(f"Unlatched then Biased TESs on these BLs {bias_bls} to {bias_TESs} V")
+        
         logger.info(f"estimating phase delay")
         try:
             S.estimate_phase_delay(opt_band)
@@ -138,7 +156,7 @@ def uxm_optimize(
 
         if uctuner.wl_median >= high_noise_thresh:
             raise ValueError(
-                f"wl_median={uctuner.wl_median} is to high. "
+                f"wl_median={uctuner.wl_median} is too high. "
                 + "Something might be wrong, power level might be really off, please investigate"
             )
 
@@ -211,10 +229,14 @@ def uxm_optimize(
             raise ValueError(f"WL={uctuner.wl_median:.1f} is off, please investigate")
             
         logger.info(uctuner.status)
-        logger.info(f"Best noise {uctuner.best_wl:.1f} pA/rtHz achieved at"
-                    + f" uc att {uctuner.best_att} tone power {uctuner.best_tone}."
+        logger.info(f"Best noise {uctuner.best_wl:.1f} pA/rtHz achieved with "
+                    + f"{uctuner.best_length} at uc att {uctuner.best_att} "
+                    + f"tone power {uctuner.best_tone}."
         )
         logger.info(f"plotting directory is:\n{S.plot_dir}")
+        
+        confl.append_opt_band(S,low_noise_thresh, med_noise_thresh, 
+                              confluence_fp,opt_band, uctuner)
 
         cfg.dev.update_band(
             opt_band,
