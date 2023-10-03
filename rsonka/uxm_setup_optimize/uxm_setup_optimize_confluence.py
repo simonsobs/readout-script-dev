@@ -49,7 +49,8 @@ def start_confluence_log_file(S,cfg,bands):
         dev_name, crate_and_slot, start_date = get_config_vals(S,cfg)
         cfile.write(f"h4. *{dev_name} {crate_and_slot}*\n")
         #cfile.write(f"optimization with `{__file__}")
-        cfile.write("* Ran {{" + f"{' '.join(sys.argv)}" +"}}\n")
+        cfile.write("* Ran {{python3" + f"{' '.join(sys.argv)}" +"}}\n")
+        cfile.write("* TODO: MC, Cu mount temperature info!\n")
         band_str = ','.join([str(band) for band in bands])
         cfile.write(f"* Plots of bands {band_str} taken {start_date} in " +\
                     "{{" +f"{S.plot_dir}" +"}}\n")
@@ -151,14 +152,14 @@ def start_or_continue(S,cfg,bands,confluence_fp='default'):
     
         
 # NOTE: RS: I didn't finish the below; you will have to manually append
-# and bands taken after a crash. 
+# any bands taken after a crash. 
 
 def continue_config(S,cfg,bands,confluence_fp):
     """
     Incomplete function that would add new noise
     data (probably taken after a crash) to an older
     file. Would be important for later adding the 
-    all bands data automatically.""""
+    all bands data automatically."""
     with open(confluence_fp,mode='r') as old_file:
          old_str = old_file.read()
     old_lines = old_file.split("\n")

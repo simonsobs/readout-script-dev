@@ -37,12 +37,12 @@ import math
 import warnings
 from pathlib import Path
 
-from pythonUtilities.numpyPlotting import make_filesafe as make_filesafe
-import pythonUtilities.ritas_python_util_main as pu
+from python_utilities.numpy_plotting import make_filesafe as make_filesafe
+import python_utilities.ritas_python_util_main as pu
 
 # raw loading
 import sodetlib.det_config
-from sodetlib.analysis import det_analysis
+from sodetlib.legacy.analysis import det_analysis #If this is having problems, check which kernel you're using and sys.path. 
 from scipy.interpolate import interp1d
 
 mpl.use('nbAgg') # can remove this line when Daniel updates the system sodetlib install so that import optimize_params no longer switches the plotting backend.
@@ -508,6 +508,7 @@ def new_metadata_dif_temps(metadata_file_path,new_file_path,temp_conversion_dict
 
 
 # =========== Temp_Ramp loading functions useful for messing around with things
+
 def fill_iva_from_preset_i_tes_i_bias_and_r_n(s,iv_py, iv):
     # unload previous r_n
     r_n = iv['R_n']
@@ -967,21 +968,24 @@ class Temp_Ramp:
         # 4. if norm_correct, make non-corrected data structures and s.do_normal_correction
         # 5. merge ramps for s.ramp. Categorize ivs.
         setup_key_info(s)
-        load_iv_analyzed(s,metadata) # loads file data & makes IV cuts.
+        load_iv_analyzed(s,metadata) # loads file data 
             load_raw_iv_analyzed(s,iv_analyzed_fp) 
             original_sodetlib_to_pysmurf(s, sod_iv_analyzed)
-            remove_sc_offset(s,iva)
-            fix_pysmurf_trans_idx(s, py_ch_iv_analyzed,sb,ch,temp)
-            standalone_IV_cut_save(s,d) # load_iv_analyzed calls for bls; 
-                standalone_IV_cut(s,d) 
-                    pre_p_sat_cuts(s,d,nb_idx,save_cut_info=False)
         load_temp_sweep_IVs(s) # decides bls, performs cuts, makes ramp_raw_arr and ramp_arr
             count_bls_seen(s)
+                fix_neg_v_b(s,iv)
+                fix_pysmurf_trans_idx(s, py_ch_iv_analyzed,sb,ch,temp)
+                standalone_IV_cut_save(s,d) # called for tes_dict setup 
+                    standalone_IV_cut(s,d) 
+                         pre_p_sat_cuts(s,d,nb_idx,save_cut_info=False)
+            # calls a.test_device.calculate_bls()
             cut_iv_analyzed(s,bathsweep_raw,bathsweep,now_bad_IVs,iai)
                 all_curve_lin_fit(s,iva)
-            calc_P_b90(s,r_n,r_tes,p_tes)
-            add_ramp_raw_iv(s, bathsweep_raw, temp, sb, ch, d)
-            add_ramp_iv(s,bathsweep, temp, sb, ch, d, p_b90=-42)
+                update_temp_list(s,temp, temp_list_name)
+                add_ramp_raw_iv(s, bathsweep_raw, temp, sb, ch, d)
+                    calc_P_b90(s,r_n,r_tes,p_tes)
+                # calls standalone_IV_cut_save() if it's a redo.
+                add_ramp_iv(s,bathsweep, temp, sb, ch, d, p_b90=-42)
         do_normal_correction(s)
             calculate_det_R_ns(s)
             pysmurf_iv_data_correction(s, py_ch_iv_analyzed,\
@@ -1089,7 +1093,7 @@ class Temp_Ramp:
         # berkeley
         if s.test_device.device_type=="LF_UFM":
             s.expected_R_n_min=0.002
-            s.expected_R_n_max=0.090
+            s.expected_R_n_max=0.015 # raised from 0.090 for Lp3 #0.090
         s.use_frac_R_n = 0 # doesn't use normal branches to find R_n for normal correction.
         
         s.redo=False
@@ -1267,11 +1271,22 @@ class Temp_Ramp:
             if not s.sc_offset and s.input_file_type == "original_sodetlib":
                 # We're loading this from raw. 
                 iv_analyzed = s.load_raw_iv_analyzed(iv_analyzed_fp)
+#                 for sb in iv_analyzed['data'].keys():
+#                     for ch, d in iv_analyzed['data'][sb].items():
+#                         print(d['i_tes_offset'])
+#                         break
+#                     break
             else:
                 iv_analyzed = np.load(iv_analyzed_fp, allow_pickle=True).item()
             # Now, if this isn't really a pysmurf dictionary, adapt it to that form
             if s.input_file_type == "original_sodetlib":
                 iv_analyzed = s.original_sodetlib_to_pysmurf(iv_analyzed)
+#                 for sb in iv_analyzed.keys():
+#                     if is_float(sb):
+#                         for ch, d in iv_analyzed[sb].items():
+#                             print(d['i_tes_offset'])
+#                             break
+#                         break
             # Let's grab times
             ctime = int(re.search(r'.*/(\d+)_iv.*', iv_analyzed_fp).group(1))
             ctime -= 4*60*60 # I guess it's the wrong timezone? 
@@ -1346,7 +1361,7 @@ class Temp_Ramp:
         timestamp,phase,mask,v_bias = det_analysis.load_from_sid(cfg,iv_info_fp)
         # Change this to proper function someday instead of 
         # the copy at the bottom of this file:
-        return analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
+        return analyze_iv_info_no_sc_offset(iv_info_fp, timestamp,phase, v_bias, mask,
                     phase_excursion_min=3.0, psat_level=s.use_per/100.0, sc_offset=s.sc_offset,
                                            bin_tod=s.bin_tod)
 
@@ -1379,6 +1394,7 @@ class Temp_Ramp:
 #         return iva
     
     def fix_pysmurf_trans_idx(s, py_ch_iv_analyzed,sb,ch,temp):
+        # LEGACY for now
         iv = py_ch_iv_analyzed
         i_bias = iv['v_tes']*(1/s.r_sh + 1/iv['R'])
         resp_bin = i_bias/(iv['R']/s.r_sh + 1) # the current through TES
@@ -1453,7 +1469,7 @@ class Temp_Ramp:
         return True
         
         
-    # called by load_iv_analyzed for bls, and load_temp_sweep_IVs's helper functions for cuts:
+    # called count_bls for tes_dict setup, and load_temp_sweep_IVs's helper functions for cuts:
     def standalone_IV_cut_save(s,d):
         ans = s.standalone_IV_cut(d)
         d['standalone'] = ans
@@ -1523,7 +1539,7 @@ class Temp_Ramp:
         
 
         # cuts on p_sat
-        if not p_sat:
+        if not p_sat or np.isnan(p_sat): #np.isnan....pretty sure that shouldn't ever happen, but hey. 
             d['cut_info'] = 'could not calculate p_sat'
             return False
         #p_sat = d['p_tes'][p_sat_idx]
@@ -1615,13 +1631,16 @@ class Temp_Ramp:
     def fix_neg_v_b(s,iv):
         # pysmurf rawest is 'v_bias' and 'v_tes', also has 'p_tes', 'R'
         # sodetlib also has 'i_tes', which is rawer.
-        diffy = np.diff(iv['v_bias'])
-        if len(np.where(diffy>0)[0]) <= 0:
-            return iv 
-
-        r_sh = s.r_sh
+        # my sodetlib loader should fix it before it gets here.
         
-        flip_idx = np.where(diffy > 0)[0][0] 
+        diffy = np.diff(iv['v_bias'])
+        if len(np.where(diffy<0)[0]) <= 0:
+            if 'pvb_idx' not in iv.keys():
+                iv['pvb_idx'] = np.where(iv['v_bias'] >=0)[0][0]
+            return iv 
+        # Does do zero removal? but still seems to have some np.nan? Maybe?
+        flip_idx = np.where(diffy < 0)[0][-1] + 1 
+        iv['pvb_idx'] = flip_idx
         for key, item in iv.items():
             try:
                 if len(item) >10:
@@ -1631,17 +1650,18 @@ class Temp_Ramp:
         for i in [0,1]:
             if iv['trans idxs'][i] == len(iv['v_bias']):
                 iv['trans idxs'][i] = iv['trans idxs'][i] - 1
-        iv_py = iv #copy.deepcopy(iv) # that is a bit awkward, but let's try it
-                
+        
+
         iv['v_bias'][:flip_idx] *= -1.0
-         
-        iv['i_bias'] =  iv_py['v_tes']*(1/s.r_sh + 1/iv_py['R'])
+
+        iv['i_bias'] =  iv['v_tes']*(1/s.r_sh + 1/iv['R'])
         # have to extract resp_bin with UNFLIPPED i_bias first
         # R = r_sh * (i_bias_bin/resp_bin - 1), so 1/((R/r_sh+1)/i_bias_bin) = resp_bin
-        resp_bin = iv['i_bias']/(iv_py['R']/r_sh + 1) # i_tes, effectively.
+        resp_bin = iv['i_bias']/(iv['R']/s.r_sh + 1) # i_tes, effectively.
         iv['i_tes'] = resp_bin # not doing any ITO right now.
         # now flip i_bias
         iv['i_bias'][:flip_idx]*= -1.0
+        iv_py = iv #copy.deepcopy(iv) # that is a bit awkward, but let's try it
         iv = fill_iva_from_preset_i_tes_i_bias_and_r_n(s,iv_py, iv)
 
         
@@ -1721,7 +1741,10 @@ class Temp_Ramp:
                     if s.use_p_satSM:
                         # cut, but not kill, on SIGNIFICANTLY increasing pysmurf p_sat since last good.
                         # prev_py_p_sat set below when a point is accepted. 
-                        prev_py_p_sat_ind = np.argwhere(bathsweep_raw[sb][ch][f'p_b{s.use_per}R_n']==prev_p_sat)[0][0]
+                        try: # from some issues with ptn
+                            prev_py_p_sat_ind = np.argwhere(bathsweep_raw[sb][ch][f'p_b{s.use_per}R_n']==prev_p_sat)[0][0]
+                        except IndexError: #s.dName[:4] == "Mv34" or s.dName[:4] == "Mv35":
+                            print(f"{sb} {ch} {temp}\nramp: {bathsweep[sb][ch]}\nramp_raw: {bathsweep_raw[sb][ch]}")
                         prev_py_p_sat = bathsweep_raw[sb][ch]['p_satSM'][prev_py_p_sat_ind] 
                         if d['p_trans'] > 1.5*prev_py_p_sat:
                             d['cut_info'] = 'p_satSM > 1.5*prev_p_satSM'
@@ -2133,7 +2156,7 @@ class Temp_Ramp:
         iv['v_tes_target'] = iv['v_tes'][i_R_op]
         iv['p_tes'] = iv['v_tes']**2/iv['R']
         # pysmurf's p_trans: 
-        iv['p_trans'] = np.median(iv['p_tes'][iv['trans idxs'][0]:iv['trans idxs'][1]])
+        iv['p_trans'] = np.median(iv['p_tes'][iv['trans idxs'][0]:iv['trans idxs'][1]]) 
         # SO p_trans (if possible):
         if len(np.ravel(np.where(iv['R']<s.use_per/100.0*iv['R_n']))) > 0:
             iv[f'p_b{s.use_per}'] = iv['p_tes'][np.ravel(np.where(iv['R']<s.use_per/100.0*iv['R_n']))[-1]]
@@ -2145,7 +2168,7 @@ class Temp_Ramp:
         for key in iv_py:
             if key not in iv.keys(): #I wanna keep some of these.
                 iv[key] = iv_py[key]
-                iv['from_py'].append('key')
+                iv['from_py'].append(key)
         return iv   
     
     def update_temp_list(s,temp, temp_list_name):
@@ -2454,7 +2477,8 @@ class Temp_Ramp:
     
     # ==================== PLOTTING FUNCTIONS ===============
     def plot_det_IVs(s,sb,ch,bl=-42,max_temp=3000, x_lim=[],y_lim=[], tes_dict=False, 
-                 run_indexes=[], own_fig=True,linewidth=1,do_idx_lines=True):
+                 run_indexes=[], own_fig=True,linewidth=1,do_idx_lines=True,
+                    plot_args={}):
         plt.figure(figsize=default_figsize)
         xmin,ymin = 100000000,100000000
         xmax,ymax = -1,-1
@@ -2463,7 +2487,8 @@ class Temp_Ramp:
                 (newmx,newmy,newx,newy) = s.plot_IV(sb, ch, temp, bl=bl,own_fig=False,
                                         run_indexes=run_indexes,tes_dict=tes_dict,
                                        linewidth=linewidth,label_include=['temp'],
-                                       x_lim=x_lim,y_lim=y_lim,do_idx_lines=do_idx_lines)
+                                       x_lim=x_lim,y_lim=y_lim,do_idx_lines=do_idx_lines,
+                                                   plot_args=plot_args)
                 xmin=min(xmin,newmx)
                 ymin=min(ymin,newmy)
                 xmax=max(xmax,newx)
@@ -2481,9 +2506,9 @@ class Temp_Ramp:
         else:
             plt.ylim([ymin,ymax])
         
-    def plot_IV(s,sb,ch,temp,x_lim=[],y_lim=[], tes_dict=True, 
-                bl=-42, run_indexes=[], own_fig=True,linewidth=1,
-                label_include=['default'],do_idx_lines=True):
+    def plot_IV(s,sb,ch,temp ,bl=-42,x_lim=[],y_lim=[], tes_dict=True, 
+                 run_indexes=[], own_fig=True,linewidth=1,do_idx_lines=True,
+                label_include=['default'],plot_args={}):
         temp_ch_iv_analyzed_arr = s.find_temp_ch_iv_analyzed(sb,ch,temp,bl=bl,
                                                              run_indexes=run_indexes)
         # This is only going to do the first one if no run_index specified, so that 
@@ -2503,7 +2528,8 @@ class Temp_Ramp:
         (plotted,d) = s.internal_plot_iv_analyzed_keys(d,sb,ch,temp,'i_bias','i_tes', 
                               x_lim=x_lim,y_lim=y_lim, tes_dict=tes_dict, 
                               bl=bl,run_indexes=run_indexes,own_fig=own_fig,
-                             linewidth=linewidth,label_include=label_include)
+                             linewidth=linewidth,label_include=label_include,
+                                                      plot_args=plot_args)
         color = plotted[0].get_color()
         if do_idx_lines:
             plt.vlines([i_bias[d['trans idxs'][0]]],
@@ -2653,7 +2679,8 @@ class Temp_Ramp:
         
     def internal_plot_iv_analyzed_keys(s,d,sb,ch,temp, x_key,y_key,
                               x_lim=[],y_lim=[], tes_dict=True, bl=-42,run_indexes=[], 
-                              own_fig=True,linewidth=1,label_include=['default']):    
+                              own_fig=True,linewidth=1,label_include=['default'],
+                                      plot_args={}):    
         linestyle = 'solid'
         if tes_dict and sb in s.tes_dict.keys() and ch in s.tes_dict[sb].keys():
             linestyle = s.tes_dict[sb][ch]['linestyle']
@@ -2667,19 +2694,19 @@ class Temp_Ramp:
             curve_name = f"{s.dName} {s.construct_crv_label(label_include,label_options)}"
             plt.figure(figsize=default_figsize)
             plotted = plt.plot(d[x_key],d[y_key], linestyle=linestyle,
-                               linewidth=linewidth,label=curve_name)
+                               linewidth=linewidth,label=curve_name,**plot_args)
             plt.title(curve_name)
         else:
             if label_include == ['default']:
                 label_include = []
             if not label_include:
                 plotted =plt.plot(d[x_key],d[y_key], 
-                              linestyle=linestyle,linewidth=linewidth)
+                              linestyle=linestyle,linewidth=linewidth,**plot_args)
             else:
                 plotted =plt.plot(d[x_key],d[y_key],
                               label=s.construct_crv_label(label_include,label_options),
-                              linestyle=linestyle,linewidth=linewidth)
-            plt.title(f"{s.dName} {s.key_info[y_key]['name']} vs. {s.key_info[x_key]['name']}")
+                              linestyle=linestyle,linewidth=linewidth,**plot_args)
+            plt.title(f"{s.key_info[y_key]['name']} vs. {s.key_info[x_key]['name']}\n{s.dName} sb{sb}ch{ch}temp{temp}")
         plt.ylabel(f"{s.key_info[y_key]['name']} [{s.key_info[y_key]['units']}]")
         plt.xlabel(f"{s.key_info[x_key]['name']} [{s.key_info[x_key]['units']}]")
         if x_lim:
@@ -3031,6 +3058,222 @@ def plot_norm_correct_p_b90_differences(s):
     plt.xlabel(f"no norm-correction {s.key_info[f'p_b{s.use_per}']['name']} [{s.key_info[f'p_b{s.use_per}']['units']}]")
     plt.legend()
     return (p_b90s_nnc,p_b90s,p)
+
+
+# ITO correction examination 
+# ======= Looking at the effect normal correction has on p_sats!
+
+# EXAMPLE USE OF THE ABOVE
+
+def nnc_check(s,sb=-42,ch=-42,x_lim=[],y_lim=[]):
+    # takes a bathramp
+    plot_norm_correct_p_b90_differences(s)
+    (p_b90s_nnc,p_b90s,ratios,p) = plot_norm_correct_p_b90_ratio_temp_details(s)
+    if x_lim:
+        plt.xlim(x_lim)
+    if y_lim:
+        plt.ylim(y_lim)
+    (p_b90s_nnc,p_b90s,ratios,p) = plot_norm_correct_p_b90_ratio_freq_opt_details(s)
+    if x_lim:
+        plt.xlim(x_lim)
+    if y_lim:
+        plt.ylim(y_lim)
+    if sb != -42 and ch != 42:
+        add_det_line(s,sb,ch,color='black')
+    plt.legend()
+    
+
+def plot_norm_correct_p_b90_differences(s):
+    p_b90s_nnc = []
+    p_b90s = []
+    #p_b90_difs = []
+    p = plt.figure(figsize=default_figsize)
+    lims = s.key_info[f'p_b{s.use_per}']['lim']
+    plt.xlim(lims)
+    plt.ylim(lims)
+    plt.plot(lims,lims,linestyle='--',color="black",label="y=x line")
+    for sb in s.ramp.keys():
+        for ch, d in s.ramp[sb].items():
+            p_b90s += d[f'p_b{s.use_per}']
+            p_b90s_nnc += s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+            #p_b90_difs += d[f'p_b{s.use_per}']-s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+    
+    plt.plot(p_b90s_nnc, p_b90s, linestyle="None",marker=".", markersize=0.5,label="data")
+    #lims = [0, max(max(p_b90s_nnc),max(p_b90s))*1.1]
+    
+    plt.title(f"{s.dName} Norm-corrected p_b{s.use_per}s vs. nnc p_b{s.use_per}s")
+    plt.ylabel(f"Norm-corrected {s.key_info[f'p_b{s.use_per}']['name']} [{s.key_info[f'p_b{s.use_per}']['units']}]")
+    plt.xlabel(f"no norm-correction {s.key_info[f'p_b{s.use_per}']['name']} [{s.key_info[f'p_b{s.use_per}']['units']}]")
+    plt.legend()
+    return (p_b90s_nnc,p_b90s,p)
+
+def plot_norm_correct_p_b90_ratio(s):
+    p_b90s_nnc = []
+    p_b90s = []
+    ratios = []
+    #p_b90_difs = []
+    for sb in s.ramp.keys():
+        for ch, d in s.ramp[sb].items():
+            p_b90s += d[f'p_b{s.use_per}']
+            p_b90s_nnc += s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+            if not len(d[f'p_b{s.use_per}']) == len(s.ramp_nnc[sb][ch][f'p_b{s.use_per}']):
+                print(f"{sb} {ch}")
+                return (d, s.ramp_nnc[sb][ch])
+            ratios += [d[f'p_b{s.use_per}'][i]/s.ramp_nnc[sb][ch][f'p_b{s.use_per}'][i] \
+                       for i in range(len(d[f'p_b{s.use_per}']))]
+            #p_b90_difs += d[f'p_b{s.use_per}']-s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+    p = plt.figure(figsize=default_figsize)
+    plt.plot(p_b90s_nnc, ratios, linestyle="None",marker=".", label="data")
+    #lims = [0, max(max(p_b90s_nnc),max(p_b90s))*1.1]
+    lims = s.key_info[f'p_b{s.use_per}']['lim']
+    plt.xlim(lims)
+    #plt.plot(lims,lims,linestyle='--',color="black",label="y=x line")
+    plt.title("Norm-corrected p_b90/nnc p_b90 vs. nnc p_b90")
+    plt.ylabel(f"Norm-corrected p_b90/nnc p_b90")
+    plt.xlabel(f"no norm-correction {s.key_info[f'p_b{s.use_per}']['name']} [{s.key_info[f'p_b{s.use_per}']['units']}]")
+    plt.legend()
+    return (p_b90s_nnc,p_b90s,ratios,p)
+
+def plot_norm_correct_p_b90_ratio_temp_details(s):
+    # sort by ramp temperature. 
+    p_b90s_nnc = {}
+    p_b90s = {}
+    ratios = {}
+    dict_arr = [p_b90s_nnc,p_b90s,ratios]
+    for dicty in dict_arr:
+        for temp in s.temp_list:
+            dicty[temp]=[]
+    #p_b90_difs = []
+    for sb in s.ramp.keys():
+        for ch, d in s.ramp[sb].items():
+            for i in range(len(d['temp'])):
+                p_b90s[d['temp'][i]].append(d[f'p_b{s.use_per}'][i])
+                p_b90s_nnc[d['temp'][i]].append(s.ramp_nnc[sb][ch][f'p_b{s.use_per}'][i])
+                ratios[d['temp'][i]].append(d[f'p_b{s.use_per}'][i]/s.ramp_nnc[sb][ch][f'p_b{s.use_per}'][i])
+            #p_b90_difs += d[f'p_b{s.use_per}']-s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+    p = plt.figure(figsize=default_figsize)
+    for temp in p_b90s_nnc.keys():
+        plt.plot(p_b90s_nnc[temp], ratios[temp],
+                 linestyle="None", marker=".", markersize=1,
+                 label=f"{temp}")
+    do_norm_correct_plot_lims_and_titling(s)
+    return (p_b90s_nnc,p_b90s,ratios,p)
+
+def plot_norm_correct_p_b90_ratio_freq_opt_details(s,opacity=0.01):
+    # sort by TES frequency and opt type. have a different color combination for each, since this scatterplot.
+    # (and there's no way I'll be able to see linestyles on this crowded a plot.)
+    mux_map = s.mux_map
+    opt_dict = s.test_device.opt_dict 
+    p_b90s_nnc = {}
+    p_b90s = {}
+    ratios = {}
+    dict_arr = [p_b90s_nnc,p_b90s,ratios]
+    #p_b90_difs = []
+    for sb in s.ramp.keys():
+        for ch, d in s.ramp[sb].items():
+            tes_freq = mux_map[sb][ch]['TES_freq']
+            opt = mux_map[sb][ch]['opt']
+            if (tes_freq,opt) not in dict_arr[0].keys():
+                for dicty in dict_arr:
+                    dicty[(tes_freq,opt)] = []
+            p_b90s[(tes_freq,opt)] += d[f'p_b{s.use_per}']
+            p_b90s_nnc[(tes_freq,opt)] += s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+            new_ratios = [d[f'p_b{s.use_per}'][i]/s.ramp_nnc[sb][ch][f'p_b{s.use_per}'][i] \
+                       for i in range(len(d[f'p_b{s.use_per}']))]
+            ratios[(tes_freq,opt)] +=  new_ratios
+#             if min(new_ratios) < 0.99:
+#                 print(f"{sb} {ch} {opt_dict[mux_map[sb][ch]['opt']][0]} {min(new_ratios):.3}")
+            #p_b90_difs += d[f'p_b{s.use_per}']-s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+    p = plt.figure(figsize=default_figsize)
+    for (tes_freq,opt) in p_b90s_nnc.keys():
+        if opt not in opt_dict.keys():
+            continue
+            opt_type = "mystery"
+        else:
+            opt_type = opt_dict[opt][0]
+        plt.plot(p_b90s_nnc[(tes_freq,opt)], ratios[(tes_freq,opt)],
+                 linestyle="None", marker=".", markersize=2.5, alpha=opacity, 
+                 label=f"{tes_freq}GHz {opt_type}")
+    do_norm_correct_plot_lims_and_titling(s)
+    return (p_b90s_nnc,p_b90s,ratios,p)
+
+
+
+
+
+def plot_norm_correct_p_b90_ratio_p_sat100mK_details(s,bins):
+    p_b90s_nnc = {}
+    p_b90s = {}
+    ratios = {}
+    dict_arr = [p_b90s_nnc,p_b90s,ratios]
+    for dicty in dict_arr:
+        for i in range(1, len(bins)):
+            dicty[bins[i]] = []
+    #p_b90_difs = []
+    for sb in s.ramp.keys():
+        for ch, d in s.ramp[sb].items():
+            if  sb not in s.results.keys() or ch not in s.results[sb].keys():
+                continue
+            i = 0
+            while s.results[sb][ch]['p_sat100mK'] > bins[i] and i <len(bins):
+                i+=1
+            p_b90s[bins[i]] += d[f'p_b{s.use_per}']
+            p_b90s_nnc[bins[i]] += s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+            ratios[bins[i]] += [d[f'p_b{s.use_per}'][i]/s.ramp_nnc[sb][ch][f'p_b{s.use_per}'][i] \
+                       for i in range(len(d[f'p_b{s.use_per}']))]
+            #p_b90_difs += d[f'p_b{s.use_per}']-s.ramp_nnc[sb][ch][f'p_b{s.use_per}']
+    p = plt.figure(figsize=default_figsize)
+    for pb in p_b90s_nnc.keys():
+        plt.plot(p_b90s_nnc[pb], ratios[pb],
+                 linestyle="None", marker=".", markersize=1,\
+                 label=f"{pb}")
+    do_norm_correct_plot_lims_and_titling(s)
+    return (p_b90s_nnc,p_b90s,ratios,p)
+
+def plot_norm_correct_p_b90_ratio_detlines_details(s):
+    #p_b90_difs = []
+    count = 0
+    p = plt.figure(figsize=default_figsize)
+    for sb in s.ramp.keys():
+        for ch, d in s.ramp[sb].items():
+            if count+1 >= 10:
+                break
+            count += 1
+            ratios = [d[f'p_b{s.use_per}'][i]/s.ramp_nnc[sb][ch][f'p_b{s.use_per}'][i] \
+                       for i in range(len(d[f'p_b{s.use_per}']))]
+            plt.plot(d[f'p_b{s.use_per}'],ratios,linewidth=1,marker=".",markersize=1,\
+                    label=f"sb{sb} ch{ch}")
+    do_norm_correct_plot_lims_and_titling(s)
+    return (p)
+
+def do_norm_correct_plot_lims_and_titling(s):
+    lims = s.key_info[f'p_b{s.use_per}']['lim']
+    #lims = [0, max(max(p_b90s_nnc),max(p_b90s))*1.1]
+    plt.xlim(lims)
+    #plt.plot(lims,lims,linestyle='--',color="black",label="y=x line")
+    plt.title(f"{s.dName} Norm-corrected p_b90/nnc p_b90 vs. nnc p_b90")
+    plt.ylabel(f"Norm-corrected p_b90/nnc p_b90")
+    plt.xlabel(f"no normal correction {s.key_info[f'p_b{s.use_per}']['name']} [{s.key_info[f'p_b{s.use_per}']['units']}]")
+    plt.legend()
+
+def get_ratios(s,sb,ch):
+    return [s.ramp[sb][ch][f'p_b{s.use_per}'][i]/s.ramp_nnc[sb][ch][f'p_b{s.use_per}'][i] \
+                    for i in range(len(s.ramp[sb][ch][f'p_b{s.use_per}']))]
+
+def get_deltas(s,sb,ch):
+    return [s.ramp[sb][ch][f'p_b{s.use_per}'][i]-s.ramp_nnc[sb][ch][f'p_b{s.use_per}'][i] \
+                    for i in range(len(s.ramp[sb][ch][f'p_b{s.use_per}']))]
+
+
+
+
+def add_det_line(s,sb,ch,color="black"):
+    plt.plot(s.ramp_nnc[sb][ch][f'p_b{s.use_per}'],get_ratios(s,sb,ch),
+             color=color,linewidth=1,linestyle=s.tes_dict[sb][ch]['linestyle'],
+             label=f"sb{sb} ch{ch}; {s.tes_dict[sb][ch]['TES_freq']}GHz {s.tes_dict[sb][ch]['opt_name']}")
+    plt.legend()
+    
+
 
 
 
@@ -3611,7 +3854,12 @@ def make_thermal_param_export(s,ufm_name,cooldown, thermom_id=None):
     print(fp)
     return tpe          
             
+
     
+
+
+
+
 
 # -~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~
 # =============== Coldload_Ramp Class (Temp_Ramp child class) ==================
@@ -4500,6 +4748,8 @@ class Ramp_Combination:
         # ------ s.setup_key_info() goes here once all the calculations are done-------
         s.setup_key_info()
         
+        # Okay, slightly hacky, but useful for some plotting:
+        s.ramps['color'] = s.key_info['ramp_name']['colors'] #useful for plotting, it turns out
         
         
     def setup_key_info(s):
@@ -4812,13 +5062,16 @@ class Ramp_Combination:
         # create_opt_power_axis helper function
         ktopd = tes_opt_power_dict # kaiwen tes_opt_power_dict
         kdet = ktopd['det']
+        kp=''
+        if 'det_x' in kdet.keys():
+            kp = 'det_'
         for sb in s.mux_map.keys():
             for ch, d in s.mux_map[sb].items():
-                kp=''
-                if 'det_x' in kdet.keys():
-                    kp = 'det_'
-                if kdet[kp+'x'] == d['det_x'] and kdet[kp+'y'] == d['det_y'] \
-                   and kdet['pol'] == d['pol'] and kdet['freq'] == d['TES_freq']:
+                # machine precision can cause problems. why mux has machine precision issues, not clear to me.
+                # the det values are stored to 1e-6 order of magnitude. 
+                if abs(kdet[kp+'x'] - d['det_x']) <=1e-12 \
+                   and abs(kdet[kp+'y'] - d['det_y']) <= 1e-12 \
+                   and kdet['pol'] == d['pol'] and try_to_numerical(kdet['freq']) == d['TES_freq']:
                     return (sb, ch)
         return (-42, -42)  # smurf didn't find this detector.
     
@@ -4869,6 +5122,10 @@ class Ramp_Combination:
                     'i_tes':(np.nan,object,'iva'),
                     'R':(np.nan,object,'iva'),
                     'p_tes':(np.nan,object,'iva'),
+                    'i_tes_stdev':(np.nan,object,'iva'),
+                    'i_bias_unbin_sc':(np.nan,object,'iva'),
+                    'i_tes_unbin_sc':(np.nan,object,'iva'),
+                    'pvb_idx':(-42,int,'iva'),
                     'iva':(np.nan,object,'special')}
         for key,init_info in crv_init.items():
             crv[key] = np.full((nc,), init_info[0], dtype=init_info[1])
@@ -4893,6 +5150,9 @@ class Ramp_Combination:
                             continue
                         for ch,iva in run_d['iv_analyzed'][sb].items():
                             # special: higher up.
+#                             print(f"{ramp.ramp_name} {bath_temp} {cl_temp} {bl_powered}")
+#                             print(f"{s.ramps['bath_temps'][r] }")
+#                             print(f"{s.ramps['ramp'][r].temp_list_raw}")
                             crv['ramp_from' ][i] = ramp
                             crv['ramp_name' ][i] = ramp.ramp_name
                             crv['bath_temp' ][i] = bath_temp
@@ -5084,7 +5344,7 @@ class Ramp_Combination:
             bad_idxs = []
             good_idxs = []
             for idx in idxs: 
-                if (is_float(s.crv['bath_temp'][idx]) #and ac.is_float(s.crv['p_opt'][idx]) 
+                if (is_float(s.crv['bath_temp'][idx]) #and is_float(s.crv['p_opt'][idx]) 
                     and is_float(s.crv[f'p_b{s.use_per}'][idx])) \
                     and ((not calc_eff) or is_float(s.crv['p_opt'][idx]) ):
                     good_idxs.append(idx)
@@ -5093,7 +5353,7 @@ class Ramp_Combination:
             idxs = np.array(good_idxs)
             all_bad_idxs = all_bad_idxs + bad_idxs
             if len(idxs) < 5: # Gotta have more points than variables!
-                return False #continue # too few points to work with
+                return (False,"<5 is_ivs")  #continue # too few points to work with
             tbs, p_opts, p_b90s = s.crv['bath_temp'][idxs],s.crv['p_opt'][idxs], s.crv[f'p_b{s.use_per}'][idxs]  
 
         #             if i < debug:
@@ -5105,7 +5365,7 @@ class Ramp_Combination:
                     ex = ramp
                     break
             if max(tbs)-min(tbs) < ex.min_b_temp_span: # 21; switched to 10 for SPB3 # in mK
-                return False # continue
+                return (False, f"points don't span {ex.min_b_temp_span} mK") # continue
             # Merging bathsweeps resulted in ones getting 4 points that have no business being fit
             # So, check for a minimum temperature range too:
             if str(s.mux_map[sb][ch]['TES_freq']).isnumeric() and \
@@ -5137,7 +5397,7 @@ class Ramp_Combination:
                                            p0 = [g_guess, ex.Tc_guess,ex.n_guess],
                                            absolute_sigma=True)
             except RuntimeError:
-                return False # continue
+                return (False,"RuntimeError in curvefit") # continue
 
             # debug:
         #             if i <debug:
@@ -5175,20 +5435,32 @@ class Ramp_Combination:
     def no_dark_subtraction_opt_eff(s,debug=0):
         num_fit = 0
         all_bad_idxs = []
+        # Setup fail_reasons
+        for ramp, other_temp in s.ramp_l: # just getting the guesses
+            if ramp.ramp_type == 'bath':
+                ex = ramp
+                break
+        fail_reasons = {"<5 is_ivs":[],  
+                        f"points don't span {ex.min_b_temp_span} mK":[],
+                       "RuntimeError in curvefit":[]}
         for i in range(len(s.tes['idx'])):
             result = s.attempt_no_dark_subtraction_opt_eff(i,num_fit=num_fit,
                                                            all_bad_idxs=all_bad_idxs,debug=debug)
-            if result:
+            if result[0]:
                 num_fit, all_bad_idxs = result
+            else: 
+                fail, fail_reason = result
+                fail_reasons[fail_reason].append(i)
         print(f"FIT {num_fit} TESs")
-        return all_bad_idxs    
+        print("Failures: " + "; ".join([f"{key}: {len(fail_reasons[key])}" for key in fail_reasons.keys()]))
+        return fail_reasons #all_bad_idxs   
     
                
                
     # ============== Functions to FIND data ========== 
     def find_idx_matches(s,match_list,dict_return=False,ax_name='crv',
                          exclude_unknowns=False):
-        '''See Temp_Ramp.find_iva_matches() and str_to_match_list() 
+        '''See Temp_Ramp.find_iva_matches() and str_to_match_list() aka ml()
         set exclude_unkowns to a list of axis keys. It will exclude
         any idxs that have a -42, np.nan, "-", or "?" in that key's value.'''
         # like find_ivas, but returns idxs. 
@@ -5206,7 +5478,7 @@ class Ramp_Combination:
                 match_list = match_list + [(by_key,'!=',-42),(by_key,'!=',-42.0),
                                            (by_key,'!=',-4.20),
                                            (by_key,'!=',np.nan),(by_key,'!=','-'),
-                                           (by_key,'!=','?')]
+                                           (by_key,'!=','?')] #np.nan uses special check from this
         for match in match_list:
             idx_list = s.apply_match(ax,idx_list,match)
         # organization if necessary
@@ -5244,12 +5516,24 @@ class Ramp_Combination:
     
     def single_match_mask(s,ax,idx_list,match):
         match_key,match_type,match_val = match
-        # np.isnan() crashes if given object or str inputs, you've got to be kidding me
+        # np.isnan() crashes if given object or str inputs, you've got to be kidding me  
+        # I should consider importing pandas for this. Honestly pandas in general sounds SUPER 
+        # useful. 
+        match_val_is_nan = False
         try:
-            if np.isnan(match_val): # needs a special comparison, always returns False to == or !=
+            if np.isnan(match_val):
+                match_val_is_nan = True
+        except TypeError:
+            pass
+        
+        if match_val_is_nan:
+            try:
                 return np.isnan(ax[match_key][idx_list]) 
-        except TypeError: # it's not a np.nan then!
-            pass            
+            except TypeError: # at least some aren't np.nan. Unfortunately we need to check individually.
+                return np.array([False if not type(val) == float \
+                             else np.isnan(val) for val in ax[match_key][idx_list]])  
+        
+        # Ugh. now that np.nan is handled, we can dothe normal stuff. 
         idx_list_mask = np.full((len(idx_list),), False,dtype=bool)
         # numpy can't do elementwise comparisons of string to array of non-string
         # fortunately if we do detect that situation, the mask is just all False anyway
@@ -5338,6 +5622,9 @@ class Ramp_Combination:
 # ==============================================================================
 # -------------------- Ramp_Combination Analysis Functions ---------------------
 # ==============================================================================
+
+# ----------- Manipulation functions
+
 def ax_line_as_dict(ax,idx):
     '''convenience function for some axis referencing'''
     return {key:ax[key][idx] for key in ax.keys()}
@@ -5447,34 +5734,7 @@ def ton_of_sbchs(s,x_key,y_key, start=0,stop='all',match_list=[],exclude_unknown
     plt.suptitle(f"{s.dName} (sb,ch) {y_key} vs. {x_key} ",y=0.999)
     plt.tight_layout()
     
-def plot_by_ramp(s,x_key,y_key,match_list=[],x_lim=[],y_lim=[],prefix='',plot_args={},
-                 own_fig=True):
-    # If I wanted separate plots I'd just use the ramps themselves.
-    if own_fig:
-        plt.figure(figsize=default_figsize)
-    # are we plotting curves, or attributes?
-    p_crv = False
-    if type(s.crv[x_key][0]) == type(np.array([1.0])):
-        p_crv = True
-    for i in range(len(s.ramps['ramp_name'])):
-        rname= s.ramps['ramp_name'][i]
-        my_idxs = s.find_idx_matches(match_list+[('ramp_name','=',rname)])
-        x_vals = s.crv[x_key][my_idxs]
-        y_vals = s.crv[y_key][my_idxs]
-        if len(x_vals) > 0:
-            color = s.ramps['color'][i]
-            plt.plot([],[],label=rname,color=color,linewidth=3)
-            if p_crv:
-                for i in range(len(x_vals)):
-                    plt.plot(x_vals[i],y_vals[i],color=color,**plot_args)
-            else:
-                plt.plot(x_vals,y_vals,color=color,**plot_args)
 
-    plt.legend()
-    restrictions = [f"{mk}{mt}{mv}" for mk,mt,mv in match_list]
-    plt.title(f"{s.dName} {y_key} vs. {x_key} by ramp \n(restrictions:[{', '.join(restrictions)}])")
-    plt.xlabel(f"{x_key}") # TODO: better axis! Use key_info!
-    plt.ylabel(f"{y_key}")
 
 def plot_key_v_key(s,x_key,y_key,match_list=[],x_lim=[],y_lim=[],prefix='',title_override='',
                    label='',plot_args={},ax_name='crv',own_fig=True,exclude_unknowns=False):
@@ -5553,7 +5813,7 @@ def plot_key_v_key_grouped_by_key(s,x_key,y_key,by_key,match_list=[],exclude_unk
         if is_float(axis[x_key][g_idxs[0]]):
             p.plot(axis[x_key][g_idxs], axis[y_key][g_idxs],label=f"{name} ({num_points} pts)", **plot_args)
         else:
-            labeller = p.plot([],[],label=f"{name} ({num_points} array pairs)", **plot_args)
+            labeller = p.plot([],[],label=f"{name}", **plot_args)# ({num_points} array pairs)
 #             plot_args['color'] = labeller[0].get_color()
             for j in range(len(g_idxs)):
                 p.plot(axis[x_key][g_idxs[j]], axis[y_key][g_idxs[j]], **plot_args)
@@ -5685,18 +5945,765 @@ def plot_key_v_key_colored_by_key(s,x_key,y_key,by_key,match_list=[],exclude_unk
     if y_lim:
         plt.ylim(y_lim)
         
-   
+
+# ------------ Histograms and Thermal summary plotting --------------------
+
+def key_hist_by_freq_and_mask(s,key,x_lim=[],bin_size=None,bin_offset=0.15,
+                              ax_name='tes',match_list=[],exclude_unknowns=False,own_fig=True,
+                             full_legend_label=True,exclude_bath_ramp_fails=False,
+                              hatch_amount=3,sig_figs=3):
+    """s a Ramp Combination, but I think this can also have s as a Bath_Ramp?!?"""
+    # THis is a hack. 
+    if exclude_bath_ramp_fails == True:
+        match_list.append(('bath_ramp_fit','=',True))
+        #if "bath_ramp_fit" not in s.tes.keys():
+        s.tes['bath_ramp_fit'] = np.full((len(s.tes['sb']),),False,dtype=bool)
+        br_r = s.ramp_l[0][0].tes_dict #all_results
+        for i in range(len(s.tes['sb'])):
+            sb, ch = s.tes['sb'][i] , s.tes['ch'][i] 
+            if sb in br_r.keys() and ch in br_r[sb].keys()\
+                and 'G' in br_r[sb][ch].keys():
+                s.tes['bath_ramp_fit'][i] = True
+    if x_lim:
+        min_x, max_x = x_lim
+    else:
+        min_x, max_x = -np.inf, np.inf
+    if not bin_size:
+        min_all, max_all = min(axis[key]),max(axis[key])
+        bin_size = (max_all-min_all)/50
+        
+    restrictions = ''
+    if exclude_unknowns or len(match_list) > 0:
+        restrictions = '\n'
+    if exclude_unknowns:
+        restrictions = restrictions + 'no unknowns '
+        if exclude_unknowns == True:
+            exclude_unknowns = ['TES_freq','masked',key] # TES_freq already exclude unknowns
+    
+    if len(match_list) >0:
+        restrictions = restrictions + f"[{', '.join([f'{mk}{mt}{mv}' for mk,mt,mv in match_list])}]"
+    
+    if own_fig == True:
+        plt.figure(figsize=default_figsize)
+        mplt = plt
+    elif own_fig != False: # passed an axis
+        mplt = own_fig
+        
+    i=0 # offset the bars a bit to see colors easier; also sets the color
+    std_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    my_hatches = [hatchy*hatch_amount for hatchy in ['\\','/','|','-']]
+    tot_plotted = 0
+    num_plotted = {}
+    for mask_stat in ['Y','N']:
+        if mask_stat == 'N':
+            if full_legend_label:
+                mtext = 'unmasked'
+            else:
+                mtext='unmskd'
+        elif mask_stat == 'Y':
+            if full_legend_label:
+                mtext = 'masked'
+            else:
+                mtext = 'mskd'
+        for freq in s.key_info['TES_freq']['vals']:
+            if str(type(s)) == str(type(Ramp_Combination.__new__(Ramp_Combination))):
+                axis = s.axes[ax_name]
+                vals = axis[key][\
+                       s.find_idx_matches([('TES_freq','=',freq),
+                                           ('masked','=',mask_stat)] + match_list,
+                                          ax_name=ax_name,
+                                         exclude_unknowns=exclude_unknowns)]
+                #(key,'<=', max_x),(key,'>', min_x)
+            else: 
+                vals = []
+                for sb in s.results.keys():
+                    for ch, params in s.results[sb].items():
+                        if s.mux_map[sb][ch]['TES_freq'] == freq \
+                        and s.mux_map[sb][ch]['masked'] == mask_stat:
+                            vals.append(params[key])
+            tot_plotted += len(vals)
+            num_plotted[f"{mtext} {freq}s"] = len(vals)
+            if len(vals) == 0:
+                continue
+            
+            offy = i*bin_size*bin_offset
+            if x_lim: # consider switching to floor for official publications...
+                bins = np.arange(min_x+offy,min_x+offy + bin_size*(np.ceil((max_x-min_x)/bin_size)+2),bin_size)
+            else:
+                mi_x, ma_x = min(vals),max(vals)
+                bins = np.arange(mi_x+offy,mi_x+offy + bin_size*(np.ceil((ma_x-mi_x)/bin_size)+2),bin_size)
+            med = np.median(vals)
+            med_sig = round_to_sf_str(med,sig_figs) # for display
+            stdev = np.std(vals)
+            stdev_sig = round_to_sf_str(stdev,sig_figs)
+            print(f"{mask_stat}\t{freq}\t{med}\t{stdev}") #\t{len(vals)}
+            
+            
+            if full_legend_label:
+                label=f"{mtext} {freq} GHz: med={med_sig} ± std={stdev_sig} [{s.key_info[key]['units']}]"
+            else:
+                label=f"{mtext} {freq}s; {med_sig}" #±{stdev:.2}
+            
+            p = mplt.hist(vals, bins=bins,alpha=0.4,color=std_colors[i],
+                         label=label,hatch=my_hatches[i],edgecolor=std_colors[i],linewidth=0)
+            mplt.axvline(med,color=std_colors[i],linestyle='dashed')
+#             else:
+#                 own_fig.hist(vals, bins=bins,alpha=0.4,color=std_colors[i],
+#                              label=f"{freq} GHz, masked={mask_stat}: med={med:.3} [{s.key_info[key]['units']}]")
+#                 own_fig.axvline(med,color=std_colors[i],linestyle='dashed')
+            i+=1
+    if x_lim:
+        plt.xlim(x_lim)
+        
+    if s.key_info[key]['units'] == '':
+        x_ax_label = f"{s.key_info[key]['name']}"
+    else:
+        x_ax_label = f"{s.key_info[key]['name']} [{s.key_info[key]['units']}]"
+    y_ax_label = "number of TESs"
+    title = f"{s.dName} {key}{restrictions}"
+    mplt.legend()
+    print(f"tot plotted: {tot_plotted}")
+        
+    if own_fig !=True and own_fig != False: # passed an axis
+        mplt.legend()
+        try: # I assume it's usually going to be a subplot
+            mplt.set_xlabel(x_ax_label) 
+            if full_legend_label:
+                mplt.set_ylabel(y_ax_label) 
+            if x_lim:
+                mplt.set_xlim(x_lim)
+        except AttributeError: # it's a full plot
+            plt.xlabel(x_ax_label)
+            if full_legend_label:
+                plt.ylabel(y_ax_label)
+            plt.title(f"{s.dName} {key}{restrictions}")
+            if x_lim:
+                mplt.xlim(x_lim)
+    return num_plotted
+
+def rc_thermal_summary_plots(s,match_list=[],sig_figs=3,exclude_bath_ramp_fails=False,
+                             x_Ranges=[[],[],[],[]], y_Ranges=[[],[],[],[]],
+                             bin_sizes=[0.3, 2, 0.01,0.05]):
+    """set the x_Ranges to 'default' to get default values for your UFM frequency type."""
+    if x_Ranges == 'default': 
+        if s.test_device.device_type == "LF_UFM":
+            # I'm really not sure about these.
+            x_Ranges = [[0,5],[135,190],[0,0.200],[1.5,4.5]]
+        if s.test_device.device_type == "MF_UFM":
+            x_Ranges = [[0,15],[135,190],[0,0.350],[1.5,4.5]]
+        if s.test_device.device_type == "UHF_UFM":
+            x_Ranges = [[0,50],[135,190],[0,1.20],[1.5,4.5]]
+
+    #thermal_y_Ranges = [[0,200],[0,160],[0,250],[0,175]]#[[0,110],[0,90],[0,250],[0,175]]
+    thermal_params=['p_sat100mK','Tc','G','n']
+
+    fig_t, ax_t = plt.subplots(nrows=4, figsize=(8,9)) 
+    for i in range(4):
+        num_plotted_dict = key_hist_by_freq_and_mask(s,thermal_params[i], 
+                                  bin_size=bin_sizes[i], x_lim=x_Ranges[i],
+                                  ax_name='tes',exclude_unknowns=True,own_fig=ax_t[i],
+                                  full_legend_label=False, exclude_bath_ramp_fails=False,
+                                  match_list=[],sig_figs=sig_figs) 
+        if y_Ranges[i]:
+            ax_t[i].set_ylim(y_Ranges[i])
+        ax_t[i].set_ylabel(" ")
+    
+    
+    restrictions = [f"{mk}{mt}{mv}" for mk,mt,mv in match_list]
+    if exclude_bath_ramp_fails:
+        restrictions = ["exclude_bath_ramp_fails=True"] + restrictions
+    
+    title = f"Thermal Parameters of {s.dName} (medians listed in legends)\n"
+    if not x_Ranges == [[],[],[],[]]:
+        title = title + "plot x_Ranges may hide outliers" 
+    if len(restrictions) > 0:
+        title = title + f"(restrictions:[{', '.join(restrictions)}])"
+    num_str = ""
+    tot_plotted = 0
+    for key,num in num_plotted_dict.items():
+        num_str = num_str + f"{num} {key}; "
+        tot_plotted+=num
+    if not title[-1] == "\n":
+        title = title+"\n"
+    num_str = f"numFit={tot_plotted}. " + num_str[:-2]
+    title = title + num_str
+    plt.suptitle(title)
+
+    plt.tight_layout()
+    fig_t.text(0.03,0.5, '------------ # of TESs ------------', ha='center', va='center',rotation='vertical', fontsize=12)
     
 
+def opt_eff_hack_hist(s, x_lim=[],bin_size=0.1,bin_offset=0.15 ):
+    key_hist_by_freq_and_mask(s,'opt_eff_no_subtraction',ax_name='tes',
+                              x_lim=x_lim,bin_size=bin_size,bin_offset=bin_offset,
+                              exclude_unknowns=['opt_eff_no_subtraction'])
+
+
+def external_bath_ramp_thermal_summary_plots(s,freq_order, nBins=60, 
+                                             x_Ranges=[[],[],[],[]], y_Ranges=[[],[],[],[]]):
+    # s is a bath ramp!
+    subplot_keys = ['p_sat100mK','Tc','G','n']
+    vals = [[s.to_plot_TES_freqs[freq][subplot_key] for freq in freq_order] for subplot_key in subplot_keys]
+    return external_thermal_summary_plots(s,freq_order,vals,nBins=nBins,x_Ranges=x_Ranges,y_Ranges=y_Ranges)
+
+
+
+    
+def external_thermal_summary_plots(s,freq_order, vals, nBins=60, 
+                                   x_Ranges=[[],[],[],[]], y_Ranges=[[],[],[],[]]):
+    # s for dName and key_info
+
+    subplot_keys = ['p_sat100mK','Tc','G','n'] # need an indexable order for ax[] ref, hence no dictionary
+
+    #freq_order = freq_order_guess
+    #vals = [[s.tes[subplot_key][freq_idx[key]] for key in freq_order] for subplot_key in subplot_keys]
+    tes_freqs_labels = [str(freq) + " GHz" for freq in freq_order]
+
+    # possibly use the key_info lims or the limit finding function here?
+    #x_R = [p_sat_Range,t_c_Range,g_Range,n_Range]
+    for ax_i in range(4):
+        if not x_Ranges[ax_i]:
+            x_Ranges[ax_i] = [min([min(freq_vals) for freq_vals in vals[ax_i]]),
+                            max([max(freq_vals) for freq_vals in vals[ax_i]])]
+    if len(y_Ranges) == 2:
+        # one y_Range for all four
+        y_Ranges = [y_Ranges,y_Ranges,y_Ranges,y_Ranges]
+
+    # Begin plottting
+    std_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    fig, ax = plt.subplots(nrows=4, figsize=(5,9)) # formerly 9,9. 5,10 for ASC
+    for ax_i in range(4):
+        for freq_i in range(len(tes_freqs_labels)):
+            h = ax[ax_i].hist(vals[ax_i][freq_i],  alpha=0.4, bins=nBins, range=x_Ranges[ax_i], label=tes_freqs_labels[freq_i]) # range=(0,12)
+            med = np.nanmedian(vals[ax_i][freq_i])
+            ax[ax_i].axvline(med, linestyle='--',color=std_colors[freq_i],label=f"median={med:.3} {s.key_info[subplot_keys[ax_i]]['units']}")
+        ax[ax_i].set_xlabel(f"{s.key_info[subplot_keys[ax_i]]['name']} [{s.key_info[subplot_keys[ax_i]]['units']}]") # ,fontsize=10 # Minimum DISPLAY fontsize >=10
+        #ax[0].set_xlabel('p_sat at 100 mK (pW)',fontsize=10)
+        #ax[0].set_ylabel('# of TESs')
+        ax[ax_i].set_ylabel(' ') # spacing reasons
+        #ax[ax_i].set_title(' ') # needed for spacing reasons
+        if y_Ranges[ax_i]:
+            ax[ax_i].set_ylim(y_Ranges[ax_i])
+        ax[ax_i].legend() #fontsize='small'  #, loc=2
+    # y_axis label
+    fig.text(0.03,0.5, '------------ # of TESs ------------', ha='center', va='center',rotation='vertical', fontsize=12)
+    # title
+    # restrictions here. 
+    t_cs = vals[1]
+    totNumDets = sum([len(dataset) for dataset in t_cs])
+    numDets = "(numFit = "+ str(totNumDets) + "; "+ ", ".join([str(len(t_cs[i])) + "x"+ tes_freqs_labels[i][:-4] for i in range(len(tes_freqs_labels))]) + ")"
+
+    # Maybe add something to note if unmasked excluded?
+    plt.suptitle(f"{s.dName} " + numDets, fontsize=16)
+    plt.tight_layout()
+    return ax
+
+
+def make_thermal_summary_plots(s, nBins=60, p_sat_Range=None,t_c_Range=None,
+                               g_Range=None, n_Range=None, 
+                               x_Ranges=[[],[],[],[]],y_Ranges=[[],[],[],[]],
+                               match_list=[], exclude_unknowns=False):
+    to_plot = s.tes
+    subplot_keys = ['p_sat100mK','Tc','G','n'] # need an indexable order for ax[] ref, hence no dictionary
+
+    freq_order_guess = [i for i in np.sort(np.array([freq for freq in np.unique(s.tes['TES_freq'])]))]
+    if freq_order_guess[0] <= 0:# this is for consistency in frequency color display
+        freq_order_guess = freq_order_guess[1:]+[freq_order_guess[0]]
+
+    freq_idx = {freq:s.find_idx_matches([('TES_freq','=',freq),('was_fit','=',True)] + match_list, 
+                                       ax_name='tes', exclude_unknowns=['TES_freq']+subplot_keys) \
+                for freq in freq_order_guess}
+    # make exclude unknowns work
+    for freq, idx_list in freq_idx.items():
+        if len(idx_list) == 0:
+            freq_order_guess.pop(freq_order_guess.index(freq)) 
+
+    freq_order = freq_order_guess
+    vals = [[s.tes[subplot_key][freq_idx[key]] for key in freq_order] for subplot_key in subplot_keys]
+    if x_Ranges == [[],[],[],[]]:
+        x_Ranges = [p_sat_Range,t_c_Range,g_Range,n_Range]
+    
+    return external_thermal_summary_plots(s,freq_order,vals,nBins=60,x_Ranges=x_Ranges,y_Ranges=y_Ranges)
+    
+
+
+# -------------- ASC graphics on single detector (clean up!!) -------------
+
+def plot_ramp_lines(s,sb,ch,ramp_idxs=[],own_fig=True,ax_name='crv',p_bper='p_b90'):
+    axis = s.axes[ax_name]
+    if own_fig:
+        plt.figure(figsize=default_figsize)
+    if ramp_idxs==[]:
+        ramp_idxs = np.array(range(len(s.ramps['ramp'])))
+    idxs = [s.find_idx_matches([('is_iv','=',True),('sb','=',sb),('ch','=',ch),('ramp_from','=',ramp)],ax_name=ax_name)
+            for ramp in s.ramps['ramp']]
+    # making grayscale legible
+    linestyles = [(0,[1,4]+[1,1]*i) for i in ramp_idxs]
+    linestyle_i = 0
+    for ramp_i in ramp_idxs:
+        ramp = s.ramps['ramp'][ramp_i]
+        linestyle = linestyles[linestyle_i]
+        if ramp.ramp_type != 'bath':
+            linestyle = 'dashed'
+            linestyle_i -= 1
+        plt.plot(axis['bath_temp'][idxs[ramp_i]],axis[p_bper][idxs[ramp_i]],label=s.ramps['ramp_name'][ramp_i],
+                 linestyle=linestyle, linewidth=1.5,color=s.key_info['ramp_name']['colors'][ramp_i])
+        linestyle_i+=1
+
+def plot_together_fit_ramps(s,sb,ch,ramp_idxs=[],own_fig=True):
+    if own_fig:
+        plt.figure(figsize=default_figsize)
+    if ramp_idxs==[]:
+        ramp_idxs = np.array(range(len(s.ramps['ramp'])))
+    idxs = [s.find_idx_matches([('is_iv','=',True),('sb','=',sb),('ch','=',ch),('ramp_from','=',ramp)])
+            for ramp in s.ramps['ramp']]
+    for ramp_i in ramp_idxs:
+        ax = plt.get_gca()
+        ax.plot(s.crv['bath_temp'][idxs[ramp_i]],s.crv[f'p_b{s.use_per}'][idxs[ramp_i]],label=s.ramps['ramp_name'][ramp_i],
+                 linestyle='dashed',linewidth=1,color=s.key_info['ramp_name']['colors'][ramp_i],zorder=1)
+
+
+
+
+def ramp_underlay_plot(s,sb,ch,ax_name='crv',p_bper='p_b90',
+                       color_scale=plt.cm.CMRmap,scale_on='cl_temp'):
+    plot_ramp_lines(s,sb,ch,ramp_idxs=[],ax_name=ax_name,p_bper=p_bper)
+    plt.legend()
+    s.plot_key_v_key_colored_by_key('bath_temp',p_bper,scale_on,
+                                  match_list=[('is_iv','=',True),('sb','=',sb),('ch','=',ch)], 
+                                  exclude_unknowns=True,ax_name=ax_name, 
+                                  plot_args={'s':80,'edgecolors':'k','zorder':2},own_fig=False,
+                                 color_scale=color_scale)
+
+    
+
+# -------------- superconducting offset functions (temporary) ---
+    
+def iva_sc_ITO_data_correction(s, py_ch_iv_analyzed,r_n=-42,set_sc_slope=False):
+    # **TODO**: Import my formal slope_fix_correct_one_iv instead!!
+    # nb_end_idx exists because I often saw this little downturn in the 
+    # iv curve at the very highest v_bias. I'm not sure why, but it's in mv6 too.
+    # takes a pysmurf data dictionary for a given (sb,ch), 
+    # backcalculates the rawer values, makes corrected & expanded version.
+    # Except I am not yet dealing with the responsivity calculations. 
+    # And, if r_n provided, forces the norm fit line's slope to be 1/(r_n/r_sh+1)
+    # dict_keys(['R' [Ohms], 'R_n', 'trans idxs', 'p_tes' [pW], 'p_trans',\
+    # 'v_bias_target', 'si', 'v_bias' [V], 'si_target', 'v_tes_target', 'v_tes' [uV]])
+    r_sh = s.r_sh 
+    iv = {} # what I will return. iv data
+    iv_py = py_ch_iv_analyzed
+    # first, things I don't need to change, really:
+    # Arguably should copy everything...
+    for key in ['trans idxs','v_bias','R_nSM','bl']:
+        iv[key] = iv_py[key]
+    # I don't think I want to copy the standalone here, honestly...maybe redo.
+    # as of 11/10/2021, pysmurf's v_bias_target is bugged, 
+    # hence not just copying iv's value for it.
+
+    #  Now, get fundamentals: v_bias_bin, i_bias_bin [uA], and i_tes [uA] (with an offset) = resp_bin  
+    # v_tes = i_bias_bin*1/(1/R_sh + 1/R), so i_bias_bin = v_tes*(1/R_sh + 1/R)
+    if 'i_bias' in iv_py.keys():
+        iv['i_bias'] = iv_py['i_bias']
+    else:
+        iv['i_bias'] =  iv_py['v_tes']*(1/s.r_sh + 1/iv_py['R'])
+    # R = r_sh * (i_bias_bin/resp_bin - 1), so 1/((R/r_sh+1)/i_bias_bin) = resp_bin
+    if 'i_tes' in iv_py.keys():
+        resp_bin = iv_py['i_tes']
+    else:
+        resp_bin = iv['i_bias']/(iv_py['R']/r_sh + 1)
+
+    # fit the superconducting branch: super simplistic version
+    sc_idx,nb_idx = iv_py['trans idxs']
+    #i_bias_sc = iv['i_bias'][:sc_idx]
+    
+    sc_start = 0
+    # Dealing with negative biases, which may include a second transition!
+    neg_idxs = np.where(iv['i_bias'] <0)[0]
+    if len(neg_idxs) > 3:
+        d_resp = np.diff(resp_bin)
+        dd_resp = np.diff(d_resp)
+        neg_sc_idx = np.where(min(dd_resp) == dd_resp)[0][0]
+        sc_start = neg_sc_idx + int(0.25*(neg_idxs[-1] - neg_sc_idx)) # giving some wiggle room for bad sc_idx selection
+        
+    # need to think about this fit because it REALLY needs to be dead-on. 
+    if set_sc_slope:
+        set_slope=1
+        if is_float(set_sc_slope):
+            set_slope = set_sc_slope*1.0 # ensures it's a float for formatting
+        sc_func = lambda i_bias, ITO: set_slope*i_bias + ITO
+        (popt, pcov) = curve_fit(sc_func,iv['i_bias'][sc_start:sc_idx-2],\
+                          resp_bin[sc_start:sc_idx-2]) # -2 is to back away from any potential messed-up transients
+        sc_fit = [set_slope, popt[0]]
+    else: # sc_idx often first point AFTER peak; and peak could be binned badly
+        sc_fit = np.polyfit(iv['i_bias'][sc_start:sc_idx-2],\
+                          resp_bin[sc_start:sc_idx-2],1)
+
+    # we also have to do an R_n fit b/c the function I'm adapting needs one
+    # simplistic nb_fit_idx
+    if r_n==-42:
+        nb_fit_idx=nb_idx + int(0.5*(len(iv['i_bias'])-nb_idx))
+        norm_fit = np.polyfit(iv['i_bias'][nb_fit_idx:],\
+                                      resp_bin[nb_fit_idx:],1)
+        r_n = r_sh*(1/norm_fit[0]-1) # our fit r_n
+    iv['R_n'] = r_n
+
+    # TODO: make residual plotter! 
+    iv['i_tes'] = resp_bin - sc_fit[1] # there we go. 
+    if 'i_tes_offset' in iv_py.keys():
+        iv['i_tes_offset'] = iv_py['i_tes_offset'] + sc_fit[1]
+    else:
+        iv['i_tes_offset'] = sc_fit[1]
+    iv['sc_slope'] = sc_fit[0]
+
+    return fill_iva_from_preset_i_tes_i_bias_and_r_n(s,iv_py,iv)
+
+    
+def sc_ITO_trial_wrapper(s,sb,ch,set_sc_slope=False): # s an RC
+    num_crvs = len(s.find_idx_matches([('sb','=',sb),('ch','=',ch),('is_iv','=',True)],ax_name='crv'))
+    sc_ITO = {'ramp_name':np.full((num_crvs,), 'hi',dtype=object),
+              'ramp_from':np.full((num_crvs,), 'hi',dtype=object),
+              'temp':np.full((num_crvs,), -42,dtype=int),
+              'bath_temp':np.full((num_crvs,), -42,dtype=float),
+              'cl_temp':np.full((num_crvs,), -42,dtype=int),
+              'iva':np.full((num_crvs,), 'hi',dtype=object),
+              'sb':np.full((num_crvs,), sb,dtype=int), # necessary so I can attach sc_ITO to a ramp combination and use s.plot_key_v_key_colored_by_key
+              'ch':np.full((num_crvs,), ch,dtype=int),
+              'is_iv':np.full((num_crvs,), True,dtype=bool),
+              'p_b90':np.full((num_crvs,), -42,dtype=float),
+              'p_b80':np.full((num_crvs,), -42,dtype=float),
+              'p_b70':np.full((num_crvs,), -42,dtype=float),
+              'p_b60':np.full((num_crvs,), -42,dtype=float),
+              'p_b50':np.full((num_crvs,), -42,dtype=float),
+              'p_b40':np.full((num_crvs,), -42,dtype=float),
+              'idx':np.arange(num_crvs),
+              'i_bias':np.full((num_crvs,),'iva',dtype=object),
+              'i_tes':np.full((num_crvs,),'iva',dtype=object),
+              'p_tes':np.full((num_crvs,),'iva',dtype=object),
+              'R':np.full((num_crvs,),'iva',dtype=object),
+              'sc_slope':np.full((num_crvs,), -42,dtype=float),
+               } # we will filter by ones that are iv curves
+    j=0
+    # THIS IS HACKY:
+    r_n = -42
+    print("\n---- pre-TANO ITO info ----")
+    for i in range(len(s.ramps['ramp'])):
+        ramp = s.ramps['ramp'][i]
+        if ramp.ramp_type=='bath'\
+           and sb in ramp.tes_dict.keys() and ch in ramp.tes_dict[sb].keys() \
+           and 'R_n' in ramp.tes_dict[sb][ch].keys():
+            r_n = ramp.tes_dict[sb][ch]['R_n']
+            break
+    for i in range(len(s.ramps['ramp'])):
+        ramp = s.ramps['ramp'][i]
+        ramp_name = s.ramps['ramp_name'][i]
+        iva_d = ramp.find_iva_matches([('sb','=',sb),('ch','=',ch),('is_iv','=',True),('temp','=','all')])
+        for temp,iva_l in iva_d.items():
+            for iva in iva_l:
+                sc_ITO['ramp_name'][j] = ramp_name
+                sc_ITO['ramp_from'][j]=ramp
+                sc_ITO['temp'][j] = temp
+                if ramp.ramp_type == 'bath':
+                    sc_ITO['bath_temp'][j] = temp
+                    sc_ITO['cl_temp'][j] = ramp.other_temps[np.where(np.array(ramp.temp_list_raw) == temp)[0][0]]
+                else:
+                    sc_ITO['bath_temp'][j] = ramp.other_temps[np.where(np.array(ramp.temp_list_raw) == temp)[0][0]]
+                    sc_ITO['cl_temp'][j] = temp
+#                r_n = -42
+#                 if sb in s.test_device.tes_dict.keys() and ch in s.test_device.tes_dict[sb].keys() \
+#                    and 'R_n' in s.test_device.tes_dict[sb][ch].keys():
+#                     r_n == s.test_device.tes_dict[sb][ch]['R_n']
+                # this DOES NOT change the original iva
+                sc_ITO['iva'][j] = iva_sc_ITO_data_correction(ramp, copy.deepcopy(iva),r_n=r_n,
+                                                              set_sc_slope=set_sc_slope)
+                for key in ['p_b90','p_b40','p_b50','p_b60','p_b70','p_b80','i_bias','i_tes','p_tes','R']:
+                    sc_ITO[key][j] = sc_ITO['iva'][j][key]
+                j+=1
+                print(f"{ramp_name} {temp} iva_ITO:{iva['i_tes_offset']}")
+    print("\n---- sc sets ITO results (no TANO) ---- ")
+    plt.figure(figsize=default_figsize)
+    for i in range(len(sc_ITO['iva'])):
+        iva = sc_ITO['iva'][i]
+        plt.plot(iva['i_bias'],iva['i_tes'],label=f"{sc_ITO['ramp_name'][i]}, {sc_ITO['temp'][i]}")
+        print(f"{sc_ITO['ramp_name'][i]}, {sc_ITO['temp'][i]}: p_b90:{iva['p_b90']:.3}, R_n:{iva['R_n']:.3}, ITO:{iva['i_tes_offset']:.3}, sc_slope:{iva['sc_slope']:.3}")
+    plt.title(f"sc sets ITO trial:\n {s.dName} sb{sb} ch{ch}, i_tes vs. i_bias ")
+    plt.axhline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    plt.axvline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    return sc_ITO
+
+
+def sc_ITO_plus_cheat_norm_and_transition_offset_wrapper(s,sb,ch,pA_per_phi0=9000000.0,
+                                                         set_ITO_plus_TANO=False,set_sc_slope=False): # s an RC
+    # set_ITO_and_TANO does the average if True, or the number given if it's a float. 
+    sc_ITO =sc_ITO_trial_wrapper(s,sb,ch,set_sc_slope=set_sc_slope)
+    #num_crvs = len(s.find_idx_matches([('sb','=',sb),('ch','=',ch),('is_iv','=',True)],ax_name='crv'))
+#     sc_ITO = {'ramp_name':np.full((num_crvs,), 'hi',dtype=object),
+#               'ramp':np.full((num_crvs,), 'hi',dtype=object),
+#               'temp':np.full((num_crvs,), -42,dtype=int),
+#               'iva':np.full((num_crvs,), 'hi',dtype=object)}
+    # resp = phase_ch * pA_per_phi0/(2.*np.pi*1e6)
+    phase_jumps_in_uA = 2*np.pi * pA_per_phi0/(2.*np.pi*1e6)
+    print("\n---- sc sets ITO WITH TANO ---- ")
+    plt.figure()
+    plt.axhline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    plt.axvline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    print("ramp_name, temp, p_b90, R_n, ITO, TANO")
+    for i in range(len(sc_ITO['iva'])):
+        iv = sc_ITO['iva'][i]
+        iv_py = copy.deepcopy(iv) # we don't really want to return this one.
+        
+        iv['i_bias'] =  iv_py['v_tes']*(1/sc_ITO['ramp_from'][i].r_sh + 1/iv_py['R'])
+        # R = r_sh * (i_bias_bin/resp_bin - 1), so 1/((R/r_sh+1)/i_bias_bin) = resp_bin
+        resp_bin = iv['i_bias']/(iv_py['R']/sc_ITO['ramp_from'][i].r_sh + 1)
+        
+        # We offset the non-sc_branch by units of phase_jumps_in_uA to get normal branch closer to going through 0.
+        sc_idx,nb_idx = iv['trans idxs']
+        nb_fit_idx= nb_idx + int(0.5*(len(iv['i_bias'])-nb_idx))
+        norm_fit = np.polyfit(iv['i_bias'][nb_fit_idx:],\
+                                  resp_bin[nb_fit_idx:],1)
+        norm_off = norm_fit[1]
+        
+        add_jumps = True
+        if add_jumps:
+            # SEE the Doug Bennett notes on the myth of the normal curve for why this is ceiling, not rounding!
+            # Actually, let's try rounding....it didn't help
+            trans_and_normal_offset = (np.ceil(norm_off/phase_jumps_in_uA))*phase_jumps_in_uA
+            iv['i_tes'][sc_idx:] -= trans_and_normal_offset # No!! Make it an exact jump, not add an exact jump!
+            # ^ Subtract might be better...look closely
+            iv['TANO'] = trans_and_normal_offset
+            
+        else: # note: this doesn't quite store the relevant TANO right. 
+            sc_start = 0
+            # Dealing with negative biases, which may include a second transition!
+            neg_idxs = np.where(iv['i_bias'] <0)[0]
+            # I should really be doing this WITH the sc_set so I don't have to redo the fit...
+            if len(neg_idxs) > 3:
+                d_resp = np.diff(resp_bin)
+                dd_resp = np.diff(d_resp)
+                neg_sc_idx = np.where(min(dd_resp) == dd_resp)[0][0]
+                sc_start = neg_sc_idx + int(0.25*(neg_idxs[-1] - neg_sc_idx)) # giving some wiggle room for bad sc_idx selection
+
+            sc_slope, sc_const = np.polyfit(iv['i_bias'][sc_start:sc_idx-2],\
+                              resp_bin[sc_start:sc_idx-2],1) # sc_idx often first point AFTER peak; and peak could be binned badly
+            peak_i = sc_slope*resp_bin[sc_idx-1]+ sc_const 
+            one_jump_c_norm = norm_off + ((peak_i-phase_jumps_in_uA) -resp_bin[sc_idx]) 
+            trans_and_normal_offset = (np.ceil(one_jump_c_norm/phase_jumps_in_uA))*phase_jumps_in_uA
+            iv['i_tes'][sc_idx:] -= (trans_and_normal_offset-norm_off)
+            iv['TANO'] = trans_and_normal_offset-norm_off
+        
+        if set_ITO_plus_TANO== False:
+            iv = fill_iva_from_preset_i_tes_i_bias_and_r_n(sc_ITO['ramp_from'][i],iv_py, iv)
+            for key in ['p_b90','p_b40','p_b50','p_b60','p_b70','p_b80','i_bias','i_tes','p_tes','R']:
+                sc_ITO[key][i] = iv[key]
+        sc_ITO['iva'][i] = iv
+            
+    # done the calculations? Ok. now:
+    if set_ITO_plus_TANO==True: # average ITO + "normal" ?
+        aipn = np.average(np.array([sc_ITO['iva'][i]['i_tes_offset']+sc_ITO['iva'][i]['TANO'] 
+                                    for i in range(len(sc_ITO['iva']))]))
+    elif is_float(set_ITO_plus_TANO):
+        aipn = set_ITO_plus_TANO
+    if set_ITO_plus_TANO == True or is_float(set_ITO_plus_TANO):
+        for i in range(len(sc_ITO['iva'])): 
+            iv = sc_ITO['iva'][i]
+            diffy = aipn - (iv['i_tes_offset'] +iv['TANO'])
+            iv['i_tes'][:] += diffy
+            iv['i_tes_offset'] += diffy
+            iv_py = copy.deepcopy(iv)
+            iv = fill_iva_from_preset_i_tes_i_bias_and_r_n(sc_ITO['ramp_from'][i],iv_py, iv)
+            for key in ['p_b90','p_b40','p_b50','p_b60','p_b70','p_b80','i_bias','i_tes','p_tes','R']:
+                sc_ITO[key][i] = sc_ITO['iva'][i][key]
+            
+            
+    for i in range(len(sc_ITO['iva'])):
+        iv = sc_ITO['iva'][i]
+        
+        plt.plot(iv['i_bias'],iv['i_tes'],label=f"{sc_ITO['ramp_name'][i]}, {sc_ITO['temp'][i]}")
+        
+        #r_n = r_sh*(1/norm_fit[0]-1) # our fit r_n
+        print(f"{sc_ITO['ramp_name'][i]}, {sc_ITO['temp'][i]}, p_b90:{iv['p_b90']:.3}, R_n:{iv['R_n']:.3}, ITO:{iv['i_tes_offset']:.3}, TANO:{iv['TANO']:.3}, ITO+TANO:{iv['i_tes_offset']+iv['TANO']:.3}")
+        #print(f"{sc_ITO['ramp_name'][i]}, {sc_ITO['temp'][i]} {iv['p_b90']:.3}, {iv['R_n']:.3}, {iv['i_tes_offset']:.3}, {iv['TANO']:.3}")
+        plt.title(f"sc sets ITO plus_cheat_norm_and_transition_offset:\n {s.dName} sb{sb} ch{ch}, i_tes vs. i_bias ")
+    
+    return sc_ITO        
+
+
+
+#sc_ITO_0_58 = sc_ITO_trial_wrapper(s,0,58)
+#sc_ITO_0_58 = sc_ITO_trial_wrapper(s,0,474) #They have the same jump thing
+ 
+# That makes it clear I AM seeing phase jumps. Checked, and I didn't have my jump removal turned on...also it needed some fixing up. 
+def sc_ITO_and_offset_hack_check_poster_child_IV(s,sb,ch,y_lim=[0,3], 
+                                                 set_ITO_plus_TANO=False,
+                                                 set_sc_slope=False):
+    sc_ITO = sc_ITO_plus_cheat_norm_and_transition_offset_wrapper(s,sb,ch,
+                                                                  set_ITO_plus_TANO=set_ITO_plus_TANO,
+                                                                  set_sc_slope=set_sc_slope)
+
+    s.sc_ITO_recent = sc_ITO
+    sc_ITO_name = f"sc_ITO_hack_{sb}_{ch}"
+    s.axes[sc_ITO_name] = sc_ITO
+    setattr(s,sc_ITO_name,sc_ITO)
+
+
+
+
+#     s.plot_key_v_key_grouped_by_key('i_bias','i_tes','ramp_name',match_list=[('sb','=',sb),('ch','=',ch)],
+#                                   ax_name=sc_ITO_name,plot_args={'alpha':0.5,'linewidth':0.5})
+    r_n_used = sc_ITO['iva'][0]['R_n']
+#     #r_n = r_sh*(1/norm_fit[0]-1) # our fit r_n. 
+    r_n_slope = 1/(r_n_used/s.r_sh+1) # the IV slope from our r_n
+#     #i_bias_max = max(sc_ITO['iva'][0]['i_bias'])
+#     plt.plot(sc_ITO['iva'][0]['i_bias'], sc_ITO['iva'][0]['i_bias']*r_n_slope,
+#              color='k',linestyle='dashed',linewidth=0.5,
+#              label=f"if TES was always normal resistor")
+#     plt.legend()
+#     plt.axhline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+#     plt.axvline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    
+#     s.plot_key_v_key_grouped_by_key('p_tes','R','ramp_name',match_list=[('sb','=',sb),('ch','=',ch)],
+#                                   ax_name=sc_ITO_name,plot_args={'alpha':0.5,'linewidth':0.5})
+#     plt.ylim([0,0.010])
+
+    # s.key_info['p_b60'] = copy.deepcopy(s.key_info['p_b90'] )
+    # s.key_info['p_b60']['name'] = 'p_tes_bias at R=60% R_n'
+    for per in [90]:#,80,70]:##60,50,40]:
+        if f'p_b{per}' not in s.key_info.keys():
+            s.key_info[f'p_b{per}'] = {'name': '$P_{b90}$, the $P_{bias}$ at R=90%$R_{n}$'.replace('90',str(per)),
+                                         'ax_name': 'crv',
+                                         'type': 'c',
+                                         'units': 'pW'}
+            # not giving lim and extremes unknown, because they are unknown
+        ramp_underlay_plot(s,sb,ch,ax_name=sc_ITO_name,p_bper=f'p_b{per}')
+        plt.ylim(y_lim)
+    
+    # what is going on with the bath_ramp....
+    bt0_name = s.ramps['ramp_name'][0]
+    # These should really be colored by key, but that isn't setup to deal with array x/y keys yet
+    s.plot_key_v_key_grouped_by_key('i_bias','i_tes','bath_temp',
+                                    match_list=[('sb','=',sb),('ch','=',ch),
+                                                ('ramp_name','=',bt0_name)],
+                                    ax_name=sc_ITO_name,
+                                    plot_args={'alpha':0.5,'linewidth':0.75}) # ,xy_overlap_offset=0
+    plt.plot(sc_ITO['iva'][0]['i_bias'], sc_ITO['iva'][0]['i_bias']*r_n_slope,
+             color='k',linestyle='dashed',linewidth=0.5,
+             label=f"if TES was always normal resistor")
+    plt.axhline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    plt.axvline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    plt.legend()
+    
+    
+#     s.plot_key_v_key_grouped_by_key('i_bias','i_tes','bath_temp',
+#                                     match_list=[('sb','=',sb),('ch','=',ch),
+#                                                 ('ramp_name','=',bt0_name)],
+#                                   ax_name=sc_ITO_name,
+#                                     plot_args={'alpha':0.5,'linewidth':0.75}) # ,xy_overlap_offset=0
+#     plt.ylim([0,60])
+#     plt.plot(sc_ITO['iva'][0]['i_bias'], sc_ITO['iva'][0]['i_bias']*r_n_slope,
+#              color='k',linestyle='dashed',linewidth=0.5,
+#              label=f"if TES was always normal resistor")
+#     plt.axhline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+#     plt.axvline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+#     plt.legend()
+    
+    s.plot_key_v_key_grouped_by_key('p_tes','R','bath_temp',match_list=[('sb','=',sb),('ch','=',ch),
+                                                                        ('ramp_name','=',bt0_name)],
+                                  ax_name=sc_ITO_name,plot_args={'alpha':0.5,'linewidth':0.75}) # ,xy_overlap_offset=0
+    plt.ylim([0.007,0.009])
+    plt.hlines(r_n_used,0,max(sc_ITO['iva'][0]['p_tes']),
+               color='k',linestyle='dashed',linewidth=0.75,
+               label=f"R_n: {sc_ITO['iva'][0]['R_n']}")
+    
+    s.plot_key_v_key_grouped_by_key('p_tes','R','bath_temp',match_list=[('sb','=',sb),('ch','=',ch),
+                                                                        ('ramp_name','=',bt0_name)],
+                                  ax_name=sc_ITO_name,plot_args={'alpha':0.5,'linewidth':0.75}) # ,xy_overlap_offset=0
+    plt.ylim([0,0.010])
+    
+    
+    return sc_ITO_name
+    
+
+def sc_and_TANO_check(s,sb,ch):
+    s.ramps['ramp'][0].plot_det_IVs(sb,ch)
+    plt.axhline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    plt.axvline(0,linestyle='--',linewidth=1,color='k',alpha=0.5)
+    #plt.show()
+    check_sc_idx(s,sb,ch)
+    print(" ================ base_TANO ================ ")
+    return base_TANO(s,sb,ch,p_sat_lim= [0,10])
+    
+def base_TANO(s,sb,ch,p_sat_lim=[]): #,idx_below_zero='default'
+    sc_ITO_name = sc_ITO_and_offset_hack_check_poster_child_IV(s,
+                             sb,ch,y_lim=p_sat_lim,set_ITO_plus_TANO=False) #, set_sc_slope=1.0
+    print("-------- slope-fix version ---------- ")
+    s.plot_key_v_key_grouped_by_key('p_tes','R','bath_temp',
+                                    match_list=[('sb_ch','=',sb*1000+ch),
+                                                 ('ramp_name','=',s.ramps['ramp_name'][0])],
+                                    y_lim=[0,0.010],#x_lim=[0,4],
+                                    plot_args={'alpha':0.5,'linewidth':0.75})
+#     print("---------- ITO and TANO ---------")
+#     s.plot_key_v_key_grouped_by_key('p_tes','R','bath_temp',
+#                                     match_list=[('ramp_name','=',s.ramps['ramp_name'][0])],
+#                                     y_lim=[0,0.010], #x_lim=[0,4],
+#                                     ax_name=sc_ITO_name, #f'sc_ITO_hack_{sb}_{ch}'
+#                                     plot_args={'alpha':0.5,'linewidth':0.75})
+    
+def check_sc_idx(s,sb,ch,transient_idxs=[]):
+    s.plot_key_v_key_grouped_by_key('i_bias','i_tes','bath_temp',
+                                    match_list=ml(f"sb={sb}&ch={ch}&is_iv=True"),
+                                                         x_lim=[],y_lim=[],
+                                                         exclude_unknowns=['i_bias','i_tes'],
+                                      ax_name='crv',plot_args={'alpha':1,
+                                                               'linewidth':0.1,#'linestyle':'None',
+                                                               'marker':'.','markersize':1})
+
+    bt_colors=s.key_info['bath_temp']['colors']
+    bt_options = s.key_info['bath_temp']['vals']
+    x_lim=[100000,-1000000]
+    y_lim=[100000,-1000000]
+    
+    
+    my_matches = s.find_idx_matches(f"sb={sb}&ch={ch}&is_iv=True",
+                                    exclude_unknowns=['i_bias','i_tes'])
+    for idx in my_matches:
+        color=bt_colors[bt_options == s.crv['bath_temp'][idx]]
+#         p = plt.plot(s.crv['i_bias'][idx],s.crv['i_tes'][idx],
+#                      linestyle='None',marker='.',markersize=0.5
+#                      color=color,label=f"{s.crv['bath_temp'][idx]} mK" )
+        sc_idx = s.crv['sc_idx'][idx]
+        plt.plot(s.crv['i_bias'][idx][sc_idx],
+                 s.crv['i_tes'][idx][sc_idx],
+                 markersize=3, marker='+',alpha=1)
+        
+        if 'contextless_idxs' not in s.crv['iva'][idx].keys():
+            continue
+        sc_cii,nb_cii = s.crv['iva'][idx]['contextless_idxs']
+        plt.plot(s.crv['i_bias'][idx][sc_cii],
+                 s.crv['i_tes'][idx][sc_cii],
+                 markersize=3, marker='x',alpha=0.5)
+        if (s.crv['i_tes'][idx][sc_cii]-s.crv['i_tes'][idx][sc_cii+1]) \
+           < (s.crv['i_tes'][idx][sc_cii+1]-s.crv['i_tes'][idx][sc_cii+2]):
+            transient_idxs.append(idx)
+        
+        x_lim[0] = min(x_lim[0],s.crv['i_bias'][idx][sc_idx],s.crv['i_bias'][idx][sc_cii])
+        x_lim[1] = max(x_lim[1],s.crv['i_bias'][idx][sc_idx],s.crv['i_bias'][idx][sc_cii])
+        y_lim[0] = min(y_lim[0],s.crv['i_tes'][idx][sc_idx],s.crv['i_tes'][idx][sc_cii])
+        y_lim[1] = max(y_lim[1],s.crv['i_tes'][idx][sc_idx],s.crv['i_tes'][idx][sc_cii])
+        
+    x_lim = [x_lim[0] - 0.1*(x_lim[1]-x_lim[0]), x_lim[1] + 0.1*(x_lim[1]-x_lim[0])]
+    y_lim = [x_lim[0] - 0.1*(y_lim[1]-y_lim[0]), y_lim[1] + 0.1*(y_lim[1]-y_lim[0])]
+    plt.xlim(x_lim)
+    plt.ylim(y_lim)
+    return transient_idxs
+    
 # ==============================================================================
 # ----------- Loading function big enough to not be at top ---------------------
 # ==============================================================================    
-    
+
 # copied from https://github.com/simonsobs/sodetlib/blob/master/sodetlib/analysis/det_analysis.py
 # except the sc_offset argument added. 
 # Oh, and I'm reducing how much it prints to terminal, because geez.
 # Once contextless_is_IV is incorporated into the actual sodetlib, expect this to be unnecessary. 
-def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
+def analyze_iv_info_no_sc_offset(iv_info_fp, timestamp, phase, v_bias, mask,
                     phase_excursion_min=3.0, psat_level=0.9, 
                                  sc_offset=True,bin_tod=True,save_iv_info_fp=''):
     """
@@ -5708,6 +6715,9 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
     iv_info_fp: str
         Filepath to the iv_info.npy file generated when the IV
         was taken.
+    timestamp: numpy.ndarray
+        Array containing the timestamp associated with each unbinned point,
+        in seconds (unfortunately they are taken faster than seconds...).
     phase: numpy.ndarray
         Array containing the detector response in units of radians.
     v_bias: numpy.ndarray
@@ -5735,6 +6745,7 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
     bias_line_resistance = iv_info['bias_line_resistance']
     high_current_mode = iv_info['high_current_mode']
     high_low_current_ratio = iv_info['high_low_ratio']
+    #print(f"{high_current_mode} {iv_info['high_low_ratio']}")
     bias_group = np.atleast_1d(iv_info['bias group'])
 
     iv_full_dict = {'metadata': {}, 'data': {}}
@@ -5755,6 +6766,7 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
     
     # switching the polarity tracker
     swapped_pol = []
+    zero_v_bias_vs_ITO = np.full((len(chans),2),(-42.0,-42.0),dtype=float)
     for c in range(len(chans)):
 #         if not ((bands[c] == 5 and chans[c]==380) \
 #                 or (bands[c]==0 and chans[c]==58)):
@@ -5839,45 +6851,117 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
             r_inline /= high_low_current_ratio
         i_bias = 1.0E6 * v_bias_bg / r_inline
         
-     
+        zero_bias_resp_values = np.nan # there were no 0-points
         if bin_tod:
-            step_loc = np.where(np.diff(v_bias_bg))[0]
+            # RS: fewer allocations to catch these cases:
+            # RS addition: without the +1 here below, v_bias_bg[step_loc[2]] is the value of 
+            # v_bias_bg in the 1st step (except for the 1st step's 1st point)
+            vb_changes = np.where(np.diff(v_bias_bg))[0] + 1
+            last_step_end = []
+            if v_bias_bg[-1] == v_bias_bg[-2]:
+                last_step_end = [len(v_bias_bg)-1]
+            step_loc = np.concatenate( ([0],vb_changes,last_step_end) )
+            
+#             step_loc = step_loc+1
+#             if step_loc[0] != 0: # this was basically always true even before the +1.
+#                 step_loc = np.append([0], step_loc)  # starts from zero
+#             if step_loc[-1] != len(v_bias_bg)-1:
+#                 step_loc = np
+#             # RS: Have to add the last point so the j+1 in the binning below gets it, IF the last
+#             # index wasn't different from the second-to-last
+            
+            n_step = len(step_loc) -1 # Now that we add the last index to step_loc, this is actually correct.
+            
+            
+            # Want to remove V_bias values with so few points they couldn't have possibly
+            # finished transient. For some reason pysmurf has a lot of <5 datum V_bias steps,
+            # especially 1-data-point V_bias steps
+            
+            step_sizes = np.diff(step_loc)
+            t_mod = sum(step_sizes < 5)
 
-            if step_loc[0] != 0:
-                step_loc = np.append([0], step_loc)  # starts from zero
-            n_step = len(step_loc) - 1
-
-
+            
+            # 0 v_bias measurements pollutes our data with np.nans. Get rid of it. 
+            # also,the last "step" is actually just an end of a step for for loop convenience.
+            # don't include it. (I'm fine with losing an actual single-point change at the end,
+            # single point isn't going to be good anyway).
+            zzzs = np.where(v_bias_bg[step_loc][:-1] == 0.0)[0] # [:-1] because the last point in step_loc is an addendum made to make the "x+1" thing work, not an actual start of a step itself. So would overcount if that happens to be the end of the V_bias=0 step (it is if not going negative)
+            z_mod = len(zzzs)
+            #z_mod = 0
+            #print(f"{len(v_bias_bg)} {zzzs}  {v_bias_bg[step_loc[zzzs[0]]:step_loc[zzzs[0]+1]]}")
+            if len(zzzs) > 0: # I am going to assume only one 0 in this. for now.
+                z_idx_unbin = zzzs[0]         
+            
+            # Have to check we didn't double count anything. 
+            for step_loc_idx in zzzs:
+                if step_loc_idx == len(step_loc)-1:
+                    continue # THis shouldn't happen, but just in case.
+                if step_loc[step_loc_idx+1]-step_loc[step_loc_idx] < 5:
+                    z_mod -= 1
+                    
+                    
+            num_bins = n_step-z_mod-t_mod
             # arrays for holding response, I, and V
-            resp_bin = np.zeros(n_step)
-            resp_stdev_bin = np.zeros(n_step) # my addition; seems to be slowing things too much
-            v_bias_bin = np.zeros(n_step)
-            i_bias_bin = np.zeros(n_step)
+            resp_bin = np.zeros(num_bins)
+            resp_stdev_bin = np.zeros(num_bins) 
+            v_bias_bin = np.zeros(num_bins)
+            i_bias_bin = np.zeros(num_bins)
+            timestamp_out = np.zeros(num_bins)
             
             
             # Find steps and then calculate the TES values in bins
-            for i in np.arange(n_step):
-                s = step_loc[i]
-                e = step_loc[i+1]
-
+            i=0
+            for j in np.arange(n_step):
+                s = step_loc[j]
+                e = step_loc[j+1]
+                
                 st = e - s
                 sb = int(s + np.floor(st/2))
-                eb = int(e - np.floor(st/10))
-
-                resp_bin[i] = np.mean(resp[sb:eb])
+                eb = int(e - np.floor(st/10)) # I think this was because used to have some of next bracket in each step?
+                
+                if v_bias_bg[s] == 0.0:# in v_bias_bg[s:e]: # should probably be just the start...
+                    zero_v_bias_vs_ITO[c,0] = np.mean(resp[sb:eb]) # so yes, only get the last one.
+                    zero_bias_resp_values = resp[s:e]
+                    continue # skip. 0s are just too annoying.
+                if e-s < 5:
+                    continue # Too small, just a transient
+                
+                try: 
+                    resp_bin[i] = np.mean(resp[sb:eb])
+                except IndexError:
+                    print(v_bias_bg[sb:])
+                    print(step_loc[i:])
+                    print(f"{zzzs}; {len(step_loc)} {n_step};  j:{j},i:{i} / {len(resp_bin)}; {sb} {eb} / {len(resp)} ")
                 resp_stdev_bin[i] = np.std(resp[sb:eb])
                 v_bias_bin[i] = v_bias_bg[sb]
                 i_bias_bin[i] = i_bias[sb]
+                timestamp_out[i] = np.mean(timestamp[sb:eb])
+                i+=1
+            
         else: # no binning, use all the raw TOD:
-            n_step = len(resp)   # because would normally come from a diff, see above, probably -1
-            # ^ frankly, I think that's wrong given how they use it later, but not significantly so.
+            # you do have to remove zeroes for the fitting unfortunately. 
+            z_mask = v_bias_bg != 0
+            zero_v_bias_vs_ITO[c,0] = np.mean(resp[z_mask == 0])
+            zero_bias_resp_values = resp[z_mask == 0]
+            #z_mask = np.array([True]*len(v_bias_bg))
+            #zero_v_bias_vs_ITO[c,0] = -42
+            
+            resp_bin = resp[z_mask]
+            v_bias_bin = v_bias_bg[z_mask]
+            i_bias_bin = i_bias[z_mask]
+            
+            timestamp_out = timestamp[z_mask]
+                        
+            n_step = len(resp)  
+            resp_stdev_bin = np.zeros(n_step)
+            
+            # I don't remember where I was going with this.
             step_dif = n_step - (len(np.where(np.diff(v_bias_bg))[0]) -1)
 #             if step_dif > 0:
 #                 print(f"{bands[c]:<2} {chans[c]:<3} {step_dif}")
-            resp_bin = resp
-            v_bias_bin = v_bias_bg
-            i_bias_bin = i_bias
         
+        if 0.0 in v_bias_bin:
+            print("0 escaped!")
         d_resp = np.diff(resp_bin)
         d_resp = d_resp[::-1]
         dd_resp = np.diff(d_resp)
@@ -5885,15 +6969,36 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
         i_bias_bin = i_bias_bin[::-1]
         resp_bin = resp_bin[::-1]
         resp_stdev_bin = resp_stdev_bin[::-1]
+        timestamp_out = timestamp_out[::-1]
+        
+        
+        # pysmurf for some reason stores negative input volts/bias as positive. Fix that.
+        # However, remember it actually stores negative volts as positive for some reason.
+        pvb_idx = 0 # positive_volt_bias. Really first non-negative voltage bias index
+        d_bias = np.diff(v_bias_bin)
+        negs = np.where(d_bias < 0)[0]
+        if len(negs) > 0:
+            pvb_idx = negs[-1] + 2 # yup, +2. One for diff's contraction, second to get positive
+        
+        if pvb_idx > 0:
+            v_bias_bin[:pvb_idx] *= -1.0
+            i_bias_bin[:pvb_idx] *= -1.0
 
         # PROBLEMS FROM THIS FITTING SEEM TO COME FROM HOW IT FINDS
         # SC IDX AND NB IDX
-
+        
         # index of the end of the superconducting branch
         dd_resp_abs = np.abs(dd_resp)
-        sc_idx = np.ravel(np.where(dd_resp_abs == np.max(dd_resp_abs)))[0] + 1
+        # If going into negative volts, don't include in the sc_idx search! 
+        # TODO: SHOULD THERE BE A +1 THERE? 
+        # +1 is for the dd_ correction and to get the sc_idx on the point on the right side of things.
+        sc_idx = np.ravel(np.where(dd_resp_abs[pvb_idx:] == np.max(dd_resp_abs[pvb_idx:])))[0] +1 + pvb_idx
+        if sc_idx == pvb_idx: # have to have at least some superconducting branch for later
+            sc_idx = pvb_idx + 1
+        # not sure how this would trigger, but:
         if sc_idx == 0:
             sc_idx = 1
+               
         
         
         # index of the start of the normal branch
@@ -5920,17 +7025,23 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
         # doing w/out i_tes_offset messes up a LOT of stuff
         resp_bin -= norm_fit[1]  # now in real current units
         
+        
+        if not zero_v_bias_vs_ITO[c,0] == -42.0:
+            zero_v_bias_vs_ITO[c,1] == norm_fit[1]
+            
         # ADDING: I want to save the unbinned around sc_idx.
-        sc_unbin_idx = np.where(i_bias == i_bias_bin[sc_idx])[0][0]+1 # plus 1 to get inside step
-        sc_step_st = np.where(sc_unbin_idx - step_loc[step_loc <= sc_unbin_idx] \
-                              == max(sc_unbin_idx - step_loc[step_loc <= sc_unbin_idx]))[0][0]
+        if bin_tod:
+            sc_step_st = np.where(v_bias_bg[step_loc] == v_bias_bin[sc_idx])[0][0]
+            sc_unbin_i_bias = i_bias[step_loc[max(sc_step_st-2,0)]:
+                                              step_loc[min(sc_step_st+3,len(step_loc)-1)]][::-1]
+            sc_unbin_i_tes = resp[step_loc[max(sc_step_st-2,0)]:
+                                              step_loc[min(sc_step_st+3,len(step_loc)-1)]][::-1] - norm_fit[1]
         
-        sc_unbin_i_bias = i_bias[step_loc[sc_step_st-3:sc_step_st+5]][::-1]
-        sc_unbin_i_tes = resp[step_loc[sc_step_st-3:sc_step_st+5]][::-1] - norm_fit[1]
         
         
-
-        sc_fit = np.polyfit(i_bias_bin[:sc_idx], resp_bin[:sc_idx], 1)
+        # I guess I'd put sc_fit plus TANO here?
+        # added the pvb_idx for now!
+        sc_fit = np.polyfit(i_bias_bin[pvb_idx:sc_idx], resp_bin[pvb_idx:sc_idx], 1)
 
         # I GOT RID OF THIS, HAAAA!!!!
         # subtract off unphysical y-offset in superconducting branch; this is
@@ -5942,7 +7053,7 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
         if sc_offset:         
             resp_bin[:sc_idx] -= sc_fit[1]
             sc_fit[1] = 0  # now change s.c. fit offset to 0 for plotting
-
+        
         R = R_sh * (i_bias_bin/(resp_bin) - 1)
         R_n = np.mean(R[nb_fit_idx:])
         R_L = np.mean(R[1:sc_idx])
@@ -5952,9 +7063,13 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
 #             print(f'Fitted normal resistance is negative. '
 #                   f'Skipping band {bands[c]}, channel {chans[c]}')
             #continue
-
-        v_tes = i_bias_bin*R_sh*R/(R+R_sh)  # voltage over TES
-        i_tes = v_tes/R  # current through TES
+        
+        # RS: changed the below two to deal with i_bias=0 case better
+        # They are identical to the originals in every other case.
+        #v_tes = i_bias_bin*R_sh*R/(R+R_sh)  # voltage over TES
+        v_tes = resp_bin*R 
+        #i_tes = v_tes/R  # current through TES
+        i_tes = resp_bin 
         p_tes = (v_tes**2)/R  # electrical power on TES
 
         # calculates P_sat as P_TES at 90% R_n
@@ -6024,16 +7139,27 @@ def analyze_iv_info_no_sc_offset(iv_info_fp, phase, v_bias, mask,
         # RS: added these
         iv_dict['pA_per_phi0'] = pA_per_phi0 # for looking at tod later.
         iv_dict['i_tes_offset'] = norm_fit[1]
-        iv_dict['i_tes_stdev'] = resp_stdev_bin # too slow.
-        iv_dict['i_bias_unbin_sc'] = sc_unbin_i_bias
-        iv_dict['i_tes_unbin_sc'] = sc_unbin_i_tes
-        
+        iv_dict['pvb_idx'] = pvb_idx # index of first non-negative bias value
+        if bin_tod:
+            iv_dict['i_tes_stdev'] = resp_stdev_bin # too slow.
+            iv_dict['i_bias_unbin_sc'] = sc_unbin_i_bias
+            iv_dict['i_tes_unbin_sc'] = sc_unbin_i_tes
+        else:
+            iv_dict['timestamp'] = timestamp_out
+        iv_dict['zero_bias_resp_values'] = zero_bias_resp_values
 
         iv_full_dict['data'].setdefault(bands[c], {})
         iv_full_dict['data'][bands[c]][chans[c]] = iv_dict
-    print(f"Skipped {phase_exc_count} chs w/ phase excursion <{phase_excursion_min}. Saw {neg_normal_count} chs w/ negative normal fit. pA_per_phi0: {pA_per_phi0}")
+        
+    abs_0_dif = sum(abs(zero_v_bias_vs_ITO[:,1]-zero_v_bias_vs_ITO[:,0])) \
+                /(len(chans)-len(zero_v_bias_vs_ITO[:,0][zero_v_bias_vs_ITO[:,0]==-42.0]))
+    
+    print(f"Skipped {phase_exc_count} chs w/ phase excursion <{phase_excursion_min}. Saw {neg_normal_count} chs w/ neg normal fit. Avg. abs(0 bias resp-c_norm) {abs_0_dif:.2}") #pA_per_phi0: {pA_per_phi0}
+    #print(zero_v_bias_vs_ITO)
     if save_iv_info_fp:
         np.save(save_iv_info_fp,iv_full_dict,allow_pickle=True)
     #print(swapped_pol)
     return iv_full_dict
+
+
 

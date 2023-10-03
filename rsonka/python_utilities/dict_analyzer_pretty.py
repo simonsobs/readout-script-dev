@@ -4,6 +4,7 @@ Made to create reference illustrations of the structure of .npy files
 and other large dictionaries. 
 """
 import sys
+import numpy as np
 
 
 def pdap(d, max_line=80, ignore_type='any', ignore_after=25, 
@@ -18,9 +19,9 @@ def pdap(d, max_line=80, ignore_type='any', ignore_after=25,
   
 
 #234567890123456789012345678901234567890123456789012345678901234567890123456789
-def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=25, 
+def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=50, 
                          do_padding=True,preview_val='fast',s_key="", 
-                         starting_space=""):
+                         starting_space=""): #round_to_sf=False
     """ Trawls through a large nested dictionary and creates a string to 
     illustrate its structure, reporting each key, the type() of that key's
     value, and a preview of the string representation of that key's value;
@@ -31,7 +32,7 @@ def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=25,
     max_line        : int  : line character # to end value previews at
     ignore_type     : type : Ignore excess keys of this type @ one dict level
                            : NOTE: may be "numpy.int64" or similar!
-                           : MAY BE string 'any', to not care about type.
+                           : MAY BE string 'all', to not care about type.
     ignore_after    : int  : # of keys of ignore type to show (on a given 
                            : dict level) before ignoring
     do_padding      : bool : Pad to align colons like in this docstring?
@@ -62,7 +63,6 @@ def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=25,
     how many were ignored in a given dictionary in parentheses after the 
     #(dictkeyname) following that dictionary preview's closing bracket.
     """
-    
     if len(d.keys()) == 0: # only if starting dict was empty
         return "{}"
     ss = starting_space + "    "
@@ -74,7 +74,7 @@ def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=25,
     seen_ignores   = 0
     key_space, type_space = " ", " " # for if do_padding turned off
     for key in d.keys():
-        if ignore_type=='any' or type(key) == ignore_type:
+        if ignore_type=='all' or ignore_type=='any' or type(key) == ignore_type:
             seen_ignores += 1
             if seen_ignores > ignore_after:
                 continue
@@ -83,8 +83,8 @@ def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=25,
             type_space = " " * (max_type_len - len(str(type(d[key]))[8:-2]))
         if type(d[key]) == dict and len(d[key].keys()) > 0:
             # f strings were being annoying about this for some reason.
-            print(f"dap(starting_space={starting_space} s_key={s_key})")
-            return "what is going on"
+            #print(f"dap(starting_space={starting_space} s_key={s_key})")
+            #return "what is going on"
             string = string + ss + str(key)  + key_space  + ":"  + \
                      str(type(d[key]))[8:-2] + type_space + " "  + \
                      dict_analyzer_pretty(d[key], s_key=key, starting_space=ss,
@@ -101,12 +101,13 @@ def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=25,
                 # the point is to not slow the function by 
                 # having it calculate str(<something massive>)
                 va = preview_fast(d[key],'',value_space=value_space)
+#                 print(f"post_preview_fast {va}")
             elif preview_val == True:
                 va = str(d[key])[:value_space] # used to have a +2 after value space, not sure why...
             else: #no preview
                 va = ''
             if len(va) > value_space:
-                    va = va[:value_space-3] + "..."
+                va = va[:value_space-3] + "..."
             string = string + ss + str(key)  + key_space  + ":"  + \
                      str(type(d[key]))[8:-2] + type_space + " "  + \
                      va + "\n" 
@@ -116,35 +117,56 @@ def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=25,
                  str(ignore_type)[8:-2] + ")"
     return string
 
-def preview_fast(val,valstr,value_space=0):
+def preview_fast(val,valstr,value_space=0,count=0):
     # valstr should start off as '', even if it was a str.
+#     print(f"preview_fast {count} {type(val)} {valstr} ")
+#     if count >= 3:
+#         return f"preview_fast called {3} times" 
     if len(valstr) > value_space:
         return valstr[:value_space-3] + "..."
     # immutable, non-iterable types, can't be too huge. Probably.
     for typy in [int, float, complex]:
         try:
             typy(val)
-            return preview_fast(val,str(val),value_space=value_space)
+            va = str(val)
+#             print(va)
+            if len(va) > value_space:
+                va = va[:value_space-3] + "..."
+            return va
         except:
             pass
-        # Now, the immutable iterable types.
-        # can't catch similar castables here.
-        if type(val) == str: # no calculation, it's a str already.
-            if len(val) <= value_space:
-                return val
-            else:
-                return val[:value_space-3] + "..."
-        for typy in [tuple, frozenset,bytes]:
-            if type(val) == typy:
-                valstr1 = str(typy)[:-1]
-                end = str(typy)[-1]
-                return preview_special_iter(val,valstr1,end,value_space)
-     # I'm also going to try fast-previewing lists.
-    try:
-        list(val)
-    except TypeError:
-        pass
-    no_prev = "**NO PREVIEW**"
+    # Now, the immutable iterable types.
+    # can't catch similar castables here.
+    if type(val) == str or type(val)==np.str_: # no calculation, it's a str already.
+        if len(val) <= value_space:
+            return val
+        else:
+            return val[:value_space-3] + "..."
+    for typy in [tuple, frozenset,bytes]:
+        if type(val) == typy:
+            valstr1 = str(typy())[:-1]
+            end = str(typy())[-1]
+            return preview_special_iter(val,valstr1,end,value_space,count=count+1)
+     # I'm also going to try fast-previewing lists & equivalent
+    # sometimes dictionaries are values of lists.
+       
+    #if type(val) == dict():
+    
+    # Could also try something more general.
+        
+#     try:
+    if type(val) == list or type(val) == type(np.array([])): # probably a list equivalent
+        #list(val)
+        # not trying to get perfect for np.ndarray
+        
+        valstr1 = '['
+        end = ']'
+        return   preview_special_iter(val,valstr1,end,value_space,count=count+1)
+#         print(f"list: post preview_special_iter {checky}")
+#         return checky
+#     except TypeError:
+#         pass
+    no_prev = f"**NO PREV:{str(type(val))[8:-2]}**"
     if len(no_prev) <= value_space:
         return no_prev
     return no_prev[:value_space-3]+"..."
@@ -152,17 +174,26 @@ def preview_fast(val,valstr,value_space=0):
                 
                 
 
-def preview_special_iter(val,valstr1, end, value_space):
+def preview_special_iter(val,valstr1, end, value_space,count=0):
+#     print(f"preview_special_iter {count} {valstr1}")
+#     if count > 10:
+#         return f"preview_special_iter called {10} times" 
     mi = iter(val)
+    finished = False
     try:
-        while len(valstr1) + 1 < value_space:
-            valstr1 = valstr1 + \
-                      preview_fast(next(mi),valstr1,
-                                   val_space=val_space-len(valstr1))
+        while len(valstr1)  <= value_space:
+            valstr1 = valstr1  +\
+                      preview_fast(next(mi),valstr1, #-len(valstr1)
+                                   value_space=value_space,count=count+1)\
+                      + ", "
+#             print(f"iter: {valstr1}")
+            
     except StopIteration:
+        finished = True
         pass
-    valstr1 = valstr1 + end
-    if len(valstr1) > value_space:
+#     print(valstr1)
+    valstr1 = valstr1[:-2] + end # remove last comma and space
+    if len(valstr1) > value_space or not finished:
         return valstr1[:value_space-3] + "..."
     return valstr1
                 
