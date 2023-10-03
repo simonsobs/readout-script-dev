@@ -7,10 +7,10 @@ Problem Set 5: Markov Chain Monte Carlo """
 
 import sys, os
 sys.path.insert(0, 'C:\Python27\myPython')
-import numpyPlotting as pl
-import Rita_Sonka_confidence as conf
+import numpy_plotting as pl
+from . import Rita_Sonka_confidence as conf
 sys.path.insert(0, 'C:\Python27\myPython\scrapeTQFRS')
-import prettyPrintTable as ppt
+import pretty_print_table as ppt
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -97,7 +97,7 @@ class MCMC:
     def __init__(self, params, paramNames, stepsizes, x, y, yerr, getModel, nSteps, \
                  acceptTarget=(0.2, 0.25), checkStepsizesEvery=100, confLevel=0.68, \
                  errorFunc=False, validFunc=noInvalid,\
-                 plotTitle='', savePath='C:\Users\Rita\Documents\SchoolStuff\CaltechYear4Term2Winter2018\GeAy117BayesianStatistics\set6\graphics',
+                 plotTitle='', savePath='C:\\Users\Rita\Documents\SchoolStuff\CaltechYear4Term2Winter2018\GeAy117BayesianStatistics\set6\graphics',
                  printPlotTitle='default', paramUnits='default', bestFitAxis=['xdata', 'ydata']):
         # Settings
         self.acceptTarget = acceptTarget
@@ -203,7 +203,7 @@ class MCMC:
             title = s.plotTitle   + ", "      
         title += "Chi2term"
         ylab = "Chi2term" 
-        s.chi2termPlot = pl.XYdataSet(range(s.bI, s.numSteps), 
+        s.chi2termPlot = pl.XYdataSet(list(range(s.bI, s.numSteps)), 
                                       s.chi2termChain[s.bI:], 
                                       xlabel="numSteps", \
                                       ylabel=ylab,title=title)
@@ -221,7 +221,7 @@ class MCMC:
         title += "LogLikelihood"
         
         ylab = "LogLikelihood" 
-        s.logLikelihoodPlot = pl.XYdataSet(range(s.bI, s.numSteps), 
+        s.logLikelihoodPlot = pl.XYdataSet(list(range(s.bI, s.numSteps)), 
                                       s.logLikelihoodChain[s.bI:], 
                                       xlabel="numSteps", \
                                       ylabel=ylab,title=title)
@@ -235,7 +235,7 @@ class MCMC:
         if isinstance(shape, list):
             singlePlots = shape
         else: 
-            singlePlots = [range(s.numP)]
+            singlePlots = [list(range(s.numP))]
         for rI in range(len(singlePlots)):
             for cI in range(len(singlePlots[rI])):
                 pI = singlePlots[rI][cI]   
@@ -246,7 +246,7 @@ class MCMC:
                 ylab = s.paramNames[pI] + " value" 
                 singlePlot =  pl.makeSinglePlotFromDataSetObj(\
                         pl.XYdataSet(\
-                            range(s.bI, s.numSteps), s.chain[pI][s.bI:], xlabel="numSteps", \
+                            list(range(s.bI, s.numSteps)), s.chain[pI][s.bI:], xlabel="numSteps", \
                                  ylabel=ylab,title=title))
                 if shape == 'separate':
                     plt.clf()
@@ -269,7 +269,7 @@ class MCMC:
         if isinstance(shape, list):
             singlePlots = shape
         else: 
-            singlePlots = [range(s.numP)]
+            singlePlots = [list(range(s.numP))]
         for rI in range(len(singlePlots)):
             for cI in range(len(singlePlots[rI])):
                 pI = singlePlots[rI][cI]
@@ -280,7 +280,7 @@ class MCMC:
                 (xlab, ylab) = (s.paramNames[pI], "probability density" )
                 bins = s.binPick(0, s.numSteps)
                 singlePlot = pl.makeSinglePlotFromDataSetObj(\
-                        pl.XYdataSet(s.chain[pI][s.bI:], range(s.bI, s.numSteps), \
+                        pl.XYdataSet(s.chain[pI][s.bI:], list(range(s.bI, s.numSteps)), \
                                      xlabel=xlab, \
                             ylabel=ylab,title=title, plotType='hist', \
                         plotTypeArgs={'bins':bins,'normed':True},\
@@ -365,20 +365,20 @@ class MCMC:
         info = [s.plotTitle, reducedChi2, aic, bic, bestFitParamsUsed]
         tS = [["Model Measures", "reduced Chi2", "AIC", '\"B\"IC', 'best Fit Params Used'], info]
         myStr = ppt.makePrettyTableString(ppt.roundTableContentsToSigFig(tS, r))
-        print myStr
+        print(myStr)
         return (info, myStr)
     
     def analyzeResults(s, r=3, setPeak=False):
-        print "Note: bestFitparams set via setPeakParams or setMinParams"
-        print "Computing full accept Rates."
+        print("Note: bestFitparams set via setPeakParams or setMinParams")
+        print("Computing full accept Rates.")
         s.myParamAcceptPer = s.myParamAcceptRates()
-        print "Computing best fit and Confidence intervals."
+        print("Computing best fit and Confidence intervals.")
         s.assignConfidences(s.bI, s.numSteps, setPeak=setPeak) 
         if not setPeak:
-            print "Re-optimizing with distribution peak as init guess."
+            print("Re-optimizing with distribution peak as init guess.")
             s.setConfidenceParams()
             s.runMinimization()
-        print s.toString(r=r)
+        print(s.toString(r=r))
         s.reportOptimization(r=r)
         s.analyzeModel(r=r)
         s.makeParamDict(r=r)
@@ -393,7 +393,7 @@ class MCMC:
         Can access all this information through appropriate vars/functions.'''
         oldBest = s.bestFitParams # Reset this at the end.
         # Get the MCMC peak results
-        print "ASSUMING YOU HAVE ALREADY RUN analyzeResults() w/setPeak=False (default)"
+        print("ASSUMING YOU HAVE ALREADY RUN analyzeResults() w/setPeak=False (default)")
         s.paramDict = {}
         s.setPeakParams() # Everything else is accessible somewhere else.
         for i in range(s.numP): # Compile the sub dict:
@@ -456,7 +456,7 @@ class MCMC:
         #print "minChi2term: " + str(min(self.chi2termChain[self.bI:]))   
         self.bestFitParam = np.transpose(self.chain[:, np.where(self.logLikelihoodChain[self.bI:] == max(self.logLikelihoodChain[self.bI:]))[0]])[0]
         #print "PeakChiParams assigned: " + str(self.bestFitParam)
-        print "Peak LogLikelihood assigned: " + str(self.bestFitParam)
+        print("Peak LogLikelihood assigned: " + str(self.bestFitParam))
         
     def setConfidenceParams(self):
         self.bestFitParam = np.array([confy.pk for confy in self.myConf])
@@ -478,7 +478,7 @@ class MCMC:
         #print "mcmcPeak param:" + str(mcmcPeakParam)
         #print "minimizeParam, if it completed, else mcmcPeak:" +str(minimizeParam)
         guessParam = s.bestFitParam
-        print "Using:" + str(guessParam)
+        print("Using:" + str(guessParam))
         for pI in range(s.numP): # param Index
             chainVals = np.sort(s.chain[pI][start:stop])
             xs, counts = np.unique(chainVals, return_counts=True)
@@ -486,8 +486,8 @@ class MCMC:
             if setPeak:
                 diff = np.absolute(xs - guessParam[pI])
                 myPeakIndex = np.where(diff == min(diff))[0][0]
-                print s.paramNames[pI] + " chain val " + str(xs[myPeakIndex]) + \
-                      " closest to best fit val " + str(guessParam[pI])
+                print(s.paramNames[pI] + " chain val " + str(xs[myPeakIndex]) + \
+                      " closest to best fit val " + str(guessParam[pI]))
                 s.myConf[pI] = conf.confidence(xs, counts, s.confLevel, \
                                                peakIndex=myPeakIndex, \
                                                equallySpaced=False)
@@ -503,9 +503,9 @@ class MCMC:
     def assignConfidences(s, start, stop, setPeak=False):
         #start, stop are indices
         if setPeak:
-            print "Assuming bestFitParam values for peak."
+            print("Assuming bestFitParam values for peak.")
         else:
-            print "Detecting best fit from distributions"
+            print("Detecting best fit from distributions")
         for pI in range(s.numP):
             pofxs, xs = np.histogram(s.chain[pI][start:stop], bins=s.binPick(start, stop), density=True)
             xs = xs[:-1] # They have an extra.
@@ -515,8 +515,8 @@ class MCMC:
             if setPeak:
                 diff = np.absolute(xs - s.bestFitParam[pI])
                 myPeakIndex = np.where(diff == min(diff))[0][0]  
-                print s.paramNames[pI] + " hist val " + str(xs[myPeakIndex]) + \
-                                  " closest to best fit val " + str(s.bestFitParam[pI])     
+                print(s.paramNames[pI] + " hist val " + str(xs[myPeakIndex]) + \
+                                  " closest to best fit val " + str(s.bestFitParam[pI]))     
                 s.myConf[pI] = conf.confidence(xs, pofxs, s.confLevel, \
                                                equallySpaced=False, \
                                                peakIndex=myPeakIndex) 
@@ -542,7 +542,7 @@ class MCMC:
         med = np.median(s.logLikelihoodChain)
         #s.bI = np.where(((s.chi2termChain - med)>= 0))[0][0]
         s.bI = np.where(((s.logLikelihoodChain - med)>= 0))[0][0]
-        print "burnIndex set:" + str(s.bI)
+        print("burnIndex set:" + str(s.bI))
         
 
         
@@ -558,9 +558,9 @@ class MCMC:
         numReports = 5
         divider = n_steps/numReports # Note the progress every this many steps.
         noteProgress = [divider*(num+1) for num in range(numReports)]
-        print "MCMC adding %d n_steps to chain of len %d"%(n_steps, s.numSteps)
-        print "curr. start:" + str(params)+ " orig. start: " + str(s.startParams) 
-        print "orig. stepsizes: " + str(s.stepsizes)
+        print("MCMC adding %d n_steps to chain of len %d"%(n_steps, s.numSteps))
+        print("curr. start:" + str(params)+ " orig. start: " + str(s.startParams)) 
+        print("orig. stepsizes: " + str(s.stepsizes))
         # Go! Wait, should I include the starting point? I think I will, though it'll probably be axed by burn-in if far out.
         
         # Pre-allocate for speed. 
@@ -587,11 +587,11 @@ class MCMC:
             s.logLikelihoodChain[n+oriLen] = logLikelihood_accept
             s.numSteps += 1
             if n in noteProgress:
-                print str(n) + " steps complete."
+                print(str(n) + " steps complete.")
             if s.numSteps % self.checkStepsizesEvery == 0:
                 self.update_step_size()
         self.setBurnIndex()
-        print "MCMC and burn cutting complete. Maybe call analyzeResults() or makePlots?"
+        print("MCMC and burn cutting complete. Maybe call analyzeResults() or makePlots?")
         
     def update_step_size(self):       
         s=self
@@ -649,7 +649,7 @@ class MCMC:
     def perturb_pick(self, params): ##select a model parameter to perturb
         ##this function randomly selects which model parameter to perturb based on how many parameters are in the model
         # Returns an index into param.
-        return np.random.choice(range(len(params)))
+        return np.random.choice(list(range(len(params))))
     
     
     def propose_param(self, active_params, perturb_index): 
@@ -663,7 +663,7 @@ class MCMC:
         try_params[perturb_index] = np.random.normal(active_params[perturb_index], self.stepsizes[perturb_index])
         while not self.validFunc(try_params, []): # It's possible this while loop should also cover whatever considers perturb_pick.
             if nTries % 100 == 0:
-                print str(nTries) +  " nTries changing " + str(perturb_index) +"from " +str(active_params)     
+                print(str(nTries) +  " nTries changing " + str(perturb_index) +"from " +str(active_params))     
             # It should do something. 
             try_params[perturb_index] = np.random.normal(active_params[perturb_index], self.stepsizes[perturb_index])
             nTries +=1

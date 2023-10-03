@@ -13,6 +13,83 @@ def make_filesafe(filename):
 def makeFilesafe(filename):
     return make_filesafe(filename)  
 
+fileExtension = "png"
+# THings to add in general: SAVING! Does below count?
+def saveFig(plt, filename):
+    plt.savefig(makeFilesafe(filename)+"." +fileExtension, bbox_inches='tight')
+    
+
+
+def fit_and_resid(function,xs,ys,p0,own_fig=True, plot_which_x_variable=-42,
+                  label='',plot_args={},legend=False,x_label='',y_label='',suptitle=''):
+    '''to put on other, own_fig= (fit_plot ax, resid_plot ax); 
+    can make one or both false to not do that plot.
+    plot_args should NOT contain label; also not contain a marker or a linestyle I think?
+    Returns: (prm,cov,pred_y,resid,fp,rp)'''
+    if own_fig == True:
+        fig, ax = plt.subplots(nrows=2, ncols=1) #figsize=(8,9) # remember it's x,y size
+        fp,rp = ax[0],ax[1]
+    elif own_fig == False: # not sure that proper behavior...should probably put on the thing.
+        fp,rp = False,False
+    else:
+        fp,rp = own_fig
+        if (fp==True and rp==False) or (fp==False and rp==True):
+            plt.figure()
+            if fp==True:
+                fp = plt
+            if rp ==True:
+                rp = plt
+    # the fit.
+    (prm,cov) = curve_fit(function, xs, ys, p0)
+    
+    # the y the fit curve predicts
+    pred_y = function(xs,*prm)
+    resid = pred_y - ys
+    
+    if not plot_which_x_variable == -42: # what to plot if function of 2+variables
+        xs = xs[plot_which_x_variable]    
+    
+    if fp:
+        # the original data
+        p = fp.plot(xs,ys,alpha=0.5,marker='.',label=label,**plot_args)
+        # the fit line
+        fp.plot(xs,pred_y,linestyle='dashed',linewidth=0.5,color=p[-1].get_color(),**plot_args)
+        try: # I assume it's usually going to be a subplot
+            fp.set_xlabel(x_label+ " dashed=Fit predict") 
+            fp.set_ylabel(y_label)
+        except AttributeError: # it's a full plot
+            plt.xlabel(x_label+ " dashed=Fit predict")
+            plt.ylabel(y_label)
+        if legend:
+            fp.legend()
+    if rp:
+        # the residual
+        rp.plot(xs,resid,marker='.',label=label,**plot_args)
+        if own_fig==True or rp==plt:
+            rp.axhline(0,linestyle='dashed',color='k')
+        try: # I assume it's usually going to be a subplot
+            rp.set_xlabel(x_label) 
+            rp.set_ylabel(y_label+ " resid.")
+        except AttributeError: # it's a full plot
+            plt.xlabel(x_label)
+            plt.ylabel(y_label+ " resid.")
+        if legend:
+            rp.legend()
+            
+    if fp or rp:
+        try: # I assume it's usually going to be a subplot
+            plt.suptitle(suptitle)
+        except AttributeError: # it's one full plot
+            plt.title(suptitle)
+        plt.tight_layout()
+    
+    return (prm,cov,pred_y,resid,fp,rp)   
+    
+    
+    
+    
+# Old code for trying to make the matplotlib subplots the same as plots, plus other stuff, below. 
+
 
 # Specific common types of graphs.
 def linePlotXY(plt, xX, yY,  titleString, xlabel, ylabel):
@@ -24,13 +101,9 @@ def linePlotXY(plt, xX, yY,  titleString, xlabel, ylabel):
 
 
 
-fileExtension = "png"
+
 
 # I should change how it handles default xlim/ylim on all the instantiation and  plotting functions!
-
-# THings to add in general: SAVING! Does below count?
-def saveFig(plt, filename):
-    plt.savefig(makeFilesafe(filename)+"." +fileExtension, bbox_inches='tight')
 
 # This is for x vs. y plots.
 

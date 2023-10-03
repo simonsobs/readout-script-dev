@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, 'C:\Python27\myPython\scrapeTQFRS')
-import prettyPrintTable as ppt # really just want the string rounding to sig figs.
+import pretty_print_table as ppt # really just want the string rounding to sig figs.
 
 # This is another person's code.
 
@@ -154,21 +154,21 @@ def confidence(xs, pofxs, conf, cdfofx=[], equallySpaced=True, peakIndex='defaul
                 liValue = cdfofx[li]
             else:
                 if ui == len(xs)-2:
-                    print "WARNING! upper edge taken, val="+str(1.0-cdfofx[ui]) 
+                    print("WARNING! upper edge taken, val="+str(1.0-cdfofx[ui])) 
                     warningVal += 2
                 ui += 1
         elif li == 0. and ui < len(xs)-1:
             if liValue == 0 or liValue < (cdfofx[ui+1]-cdfofx[ui]): # moving ui up might be better than taking the illusory 'last' point.
                 ui += 1
             else: # Possibly limit these warnings to only go off if it takes a big chunk of probability?
-                print "WARNING! lower edge taken, val="+str(liValue)
+                print("WARNING! lower edge taken, val="+str(liValue))
                 warningVal += 1
                 liValue = 0. # Incorporate the prob on first. 
         elif li > 0 and ui == len(xs)-1:
             li -= 1
             liValue = cdfofx[li]
         else:
-            print "conf FAIL! li=%d ui=%d"%(li, ui) # Just in case
+            print("conf FAIL! li=%d ui=%d"%(li, ui)) # Just in case
             return ConfObject(xs[pkxi], xs[li], xs[ui], -4, cdf=cdfofx)
     # Note that if cdfofx is huge, it will look weird when printed.
     if warningVal:
@@ -191,7 +191,7 @@ def testConf():
     typX = np.linspace(-200, 200, num=10000) 
     gaussPDF = gaussian(5, 3, typX)
     gaussConf = confidence(typX, gaussPDF, 0.68, cdfofx=[], equallySpaced=True, plotCDF=False)
-    print gaussConf.toString(r=2)
+    print(gaussConf.toString(r=2))
     # Gets limits [1.9801980198020033, 7.9807980798079825] (with higher r argument).
     # Accurate limits to < 1% is good enough for me!     
     

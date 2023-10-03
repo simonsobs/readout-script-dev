@@ -36,9 +36,11 @@ import copy
 import math
 import warnings
 from pathlib import Path
+import random as rand
 
+sys.path.append('/home/rsonka/repos/readout-script-dev/rsonka')
+import python_utilities as pu
 from python_utilities.numpy_plotting import make_filesafe as make_filesafe
-import python_utilities.ritas_python_util_main as pu
 
 # raw loading
 import sodetlib.det_config
@@ -86,7 +88,8 @@ def str_to_num_or_bool(strv):
     return try_to_numerical(strv)
 
 def str_to_match_list(mlstr):
-    ''''I got sick of typing so much for match list.
+    ''''NOTE: IF UPDATE, must update the separate class version!
+    I got sick of typing so much for match list.
     Converts a string match_keymatch_typematch_val|...
     to [(match_key,match_type,match_val),...],
     may struggle with list match_vals if list includes comma,
@@ -114,7 +117,77 @@ def str_to_match_list(mlstr):
                        str_to_num_or_bool(val_str))
         match_list.append(matchy)
     return match_list
-    
+
+# ==============================================================================
+# --------------------------- Test_Device Support ------------------------------
+# ==============================================================================
+kai2d= {'smurf_freq' : 'freq',
+        'vna_freq' : '',
+        'design_freq' : '',
+        'index' : 'mux_index',  #1-65, in order of increasing frequency, on a mux chip
+        'mux_band' : '**SPEC**', # Daniel lists order of mux chip appearance (see assembly) under mux_chip, but this is not the band 
+        'pad' : 'mux_pad',
+        'mux_posn' : 'mux_chip', # since LF has it's own.
+        'biasline' : 'bias_group',
+        'pol' : '**SPEC**', #'pol_ang', # but Daniel has numbers (-1 for D I think?) -> A, B, D. More than two numbers too. Apparently that's part of Kaiwen's copper_map_corrected.csv
+        'TES_freq' : '**SPEC**', # from dan. TES_id. #(T/B/D) -> # or NC
+        'det_row' : '',
+        'det_col' : '',
+        'rhomb' : '',
+        'opt' : '**SPEC**', #   -> 0 for does not see light, 1 for does see light (and is optical fab, Ithink)
+        'det_x' : 'x_mm',
+        'det_y' : 'y_mm'}
+
+def dan_to_kai_mux_quick(dan_fp,out_fp): # **TODO**: VERY DIRTY!
+    alph = 'abcdefghijklmnopqrstuvwxyz'
+    kaiwen_arr = [ac.orig_map_atts]
+    daniel_mux = np.load(dan_fp,allow_pickle=True).item()
+    i = 0
+    for sb in daniel_mux.keys():
+        for ch, d in daniel_mux[sb].items():
+            if len(d.keys()) > 1:
+                to_add = np.full((18,),'?',dtype=object)
+                to_add[0] = str(sb)
+                if pu.is_float(ch):
+                    to_add[1] = str(ch)
+                else: # Daniel separates -1's with -1.a, -1.b.... I like the idea but need ints, so:
+                    to_add[1] = str(-8*1000 -1 - alph.find(ch[3:])) # -8*512 to make sb_ch work
+                i = 2
+                for key in ac.orig_map_atts[2:]:
+                    val = kai2d[key]
+                    if val == '':
+                        to_add[i] = '?'
+                    elif not val == "**SPEC**":
+                        to_add[i] = str(d[val])
+                    else:
+                        t_id = str(d['tes_id'])
+                        if key == 'mux_band':
+                            to_add[i] = '?' #  **TODO**: can get from mux_chip
+                        elif key == 'pol':
+                            if t_id[-1] == 'T':
+                                to_add[i] = 'A'
+                            else:
+                                to_add[i] = t_id[-1]
+                            #print(to_add[i])
+                        elif key == 'TES_freq':
+                            if d['bonded'] == 'N': # **TODO**: NOT SURE THIS CORRECT
+                                to_add[i] = 'NC'
+                            else:
+                                to_add[i] = t_id[:-1]
+                        elif key == 'opt':
+                            if t_id[-1] == 'D':
+                                to_add[i] = '0.0'
+                            else:
+                                to_add[i] = '1.0'
+                    #print(f"{key} {to_add[i]}")
+                    i+=1
+                kaiwen_arr.append(to_add)
+    with open(out_fp,'w') as f:
+        for row in kaiwen_arr:
+            f.write(",".join(row)+"\n")
+
+
+
 # ==============================================================================
 # --------------------------- Test_Device Class --------------------------------
 # ==============================================================================
@@ -277,6 +350,8 @@ class Test_Device:
         # This was a poor decision to put it all in opt. 
         # Should have separate masked/unmasked and dark-fab/opt-fab values.
         # unfortunately changing at this point would require a ton of work. 
+        # ....I mean, I do keep fields that have them separate now, it's just that 
+        # several Temp_Ramp functions only look at opt.
         if opt_dict == 'default':
             # Defining the opt map here!
             # I think Kaiwen just uses -1, 0 and 1. Does not account for masks here.
@@ -290,22 +365,26 @@ class Test_Device:
                           0.75: ('dark horn-pixel', 'dashed'),
                           0.875: ('fab? horn', 'solid'),
                           1.0: ('opt horn', 'solid')} 
+            if device_type == "LF_UFM":
+                s.opt_dict[0.75] = ('dark lenslet', 'dashed')
+                s.opt_dict[0.875] = ('fab? lenslet', 'solid')
+                s.opt_dict[1.0] = ('opt lenslet', 'solid')
         else:
             s.opt_dict = opt_dict
         
         # At least in Kaiwen's Mv6, opt=0.0 if dark fab OR opt fab masked. opt=1.0 if opt and unmasked.
-        if masked_biaslines:
-            for i in range(len(s.base_mux_map)):  
-                if int(s.base_mux_map[i][9]) in masked_biaslines: # det[9] = the bias line. Is masked.
-                    #print("recognized a masked bias line")
-                    if float(s.base_mux_map[i][15]) == 1.0:        # det[15] = opt. masked optical
-                        s.base_mux_map[i][15] = 0.25               # masked dark (0.0) stays the same. 
-                    #print(s.mux_map[i][10])
-                    if (str(s.base_mux_map[i][10])[2:-1] == 'A' or str(s.base_mux_map[i][10])[2:-1] == 'B') and float(s.base_mux_map[i][15])==0.0: # pol=D=Kaiwen's dark fab note 
-                        s.base_mux_map[i][15] = 0.25  # That's actually an optical masked detector. 
-                else:                                         # unmasked
-                    if float(s.base_mux_map[i][15]) == 0.0 and str(s.base_mux_map[i][10])[2:-1] == 'D':
-                        s.base_mux_map[i][15] = 0.75               # dark fab on area getting light.             
+        for i in range(len(s.base_mux_map)):  
+            if int(s.base_mux_map[i][9]) in masked_biaslines: # det[9] = the bias line. Is masked.
+                #print("recognized a masked bias line")
+                if (str(s.base_mux_map[i][10])[2:-1] == 'A' or str(s.base_mux_map[i][10])[2:-1] == 'B'): #float(s.base_mux_map[i][15]) == 1.0:        # det[15] = opt. masked optical
+                    s.base_mux_map[i][15] = 0.25               # masked dark (0.0) stays the same. 
+                #print(s.mux_map[i][10])
+                if (str(s.base_mux_map[i][10])[2:-1] == 'A' or str(s.base_mux_map[i][10])[2:-1] == 'B') and float(s.base_mux_map[i][15])==0.0: # pol=D=Kaiwen's dark fab note 
+                    s.base_mux_map[i][15] = 0.25  # That's actually an optical masked detector. 
+            else:                                         # unmasked
+                if float(s.base_mux_map[i][15]) == 0.0 and 'D' in str(s.base_mux_map[i][10]): #str(s.base_mux_map[i][10])[2:-1] == 'D':
+                    s.base_mux_map[i][15] = 0.75               # dark fab on area getting light. 
+                
         mux_map = {}
         tes_dict = {}
         for chan in s.base_mux_map:
@@ -327,7 +406,7 @@ class Test_Device:
                 opt_name = s.opt_dict[mux_map[sb][ch]['opt']][0]
                 if 'masked' in opt_name:
                     mux_map[sb][ch]['masked'] = "Y"  
-                elif 'horn' in opt_name:
+                elif 'horn' in opt_name or 'lenslet' in opt_name:
                     mux_map[sb][ch]['masked'] = 'N'
                 if 'opt ' in opt_name:
                     mux_map[sb][ch]['OMT'] = 'Y'
@@ -513,6 +592,8 @@ def fill_iva_from_preset_i_tes_i_bias_and_r_n(s,iv_py, iv):
     # unload previous r_n
     r_n = iv['R_n']
     r_sh = s.r_sh
+    iv['R'] = r_sh * (iv['i_bias']/iv['i_tes'] - 1)
+    ''' # Wasn't using these and they somehow caused problems with Uv42.
     #  get pysmurf's target R_op_target:
     #py_target_idx = np.ravel(np.where(iv_py['v_tes']==iv_py['v_tes_target']))[0]
     # above doesn't work b/c sc offset removal can remove the point that it targeted, so:
@@ -523,12 +604,15 @@ def fill_iva_from_preset_i_tes_i_bias_and_r_n(s,iv_py, iv):
         v_targ = 5 # this could be horribly wrong, but I don't htink we ever use this value.
         print(f"{iv['sb']} {iv['ch']}  {iv['temp']} {iv['bl']} {iv['v_tes_target']}; new_targ={v_targ} {iv['v_tes']}")
         iv['v_tes_target'] = v_targ
+    
     py_target_idx = np.ravel(np.where( abs(iv_py['v_tes']-v_targ) == min(abs(iv_py['v_tes']-v_targ)) ))[0]
     R_op_target = iv_py['R'][py_target_idx]    
+    
+    
     # Now just refill the rest of the keys same way pysmurf does (except do correct v_bias_target):
     # dict_keys(['R' [Ohms], 'R_n', 'trans idxs', 'p_tes' [pW], 'p_trans',\
     # 'v_bias_target', 'si', 'v_bias' [V], 'si_target', 'v_tes_target', 'v_tes' [uV]]
-    iv['R'] = r_sh * (iv['i_bias']/iv['i_tes'] - 1)
+    #iv['R'] = r_sh * (iv['i_bias']/iv['i_tes'] - 1) # moved up to l
     # the correct equivalent of pysmurf's i_R_op
     i_R_op = 0
     for i in range(len(iv['R'])-1,-1,-1):
@@ -536,8 +620,10 @@ def fill_iva_from_preset_i_tes_i_bias_and_r_n(s,iv_py, iv):
             i_R_op = i
             break
     iv['v_bias_target'] = iv['v_bias'][i_R_op]
-    iv['v_tes'] = iv['i_bias']/(1/r_sh + 1/iv['R']) # maybe use R_sh*(i_bias-i_tes)?
+    
     iv['v_tes_target'] = iv['v_tes'][i_R_op]
+    '''
+    iv['v_tes'] = iv['i_bias']/(1/r_sh + 1/iv['R']) # maybe use R_sh*(i_bias-i_tes)?
     iv['p_tes'] = iv['v_tes']**2/iv['R']
     # pysmurf's p_trans: 
     iv['p_trans'] = np.median(iv['p_tes'][iv['trans idxs'][0]:iv['trans idxs'][1]])
@@ -1073,7 +1159,7 @@ class Temp_Ramp:
         s.use_per= use_per
         s.p_sat_cut = p_sat_cut
         if p_sat_cut == "default":
-            default_p_sat_cuts = {"LF_UFM":13,"MF_UFM":15,"UHF_UFM":55}
+            default_p_sat_cuts = {"LF_UFM":10,"MF_UFM":15,"UHF_UFM":55}
             s.p_sat_cut = default_p_sat_cuts[s.test_device.device_type]
         s.use_p_satSM=use_p_satSM
         s.fix_pysmurf_idx=fix_pysmurf_idx
@@ -1148,8 +1234,17 @@ class Temp_Ramp:
             if type(s.save_raw_ivas) == str:
                 fname = make_filesafe(s.save_raw_ivas)
             else:
-                fname = f"raw_{s.ramp_type}ramp_iva_{make_filesafe(s.dName)}_ft-{s.input_file_type[:2]}"
-                fname = fname +f"_sc_off-{str(s.sc_offset)[0]}_bin_tod-{str(s.bin_tod)[0]}.npy"
+                #fname = f"{int(datetime.timestamp(datetime.now()))}_" # timestamp. Worried that I"ll make too many.
+                # I really want to include the metadata, so that I can save different ramps 
+                # (at different Other Temperatures, so no combining) of the same device.
+                # only get here if DO have a metadata arr, so
+                met_fp = s.metadata_fp_arr[0]
+                fold= ''
+                if "/" in met_fp:
+                    fold = '.*/'
+                met_name = re.match(fold + "(.*)\.csv",met_fp).group(1)
+                fname = f"raw_iva_{make_filesafe(s.dName)}_{met_name}" #_ft-{s.input_file_type[:2]}
+                fname = fname +f"_sc_off-{str(s.sc_offset)[0]}.npy" #bin_tod-{str(s.bin_tod)[0]}.npy" Super rare to not have.
             save_path = os.path.join(s.test_device.out_path, fname)
             np.save(save_path, save_dict, allow_pickle=True)
             print(f"Saved raw iv_analyzed_info_arr to {save_path}")
@@ -1753,7 +1848,7 @@ class Temp_Ramp:
                 # I think this might be too aggressive with the cuts.
                 # more sophisticated version of above using slopes:
                 # But the slopes are too gentle in coldload ramps. 
-                if s.ramp_type == 'bath' and sb in bathsweep.keys() and ch in bathsweep[sb].keys() and len(bathsweep[sb][ch][f'p_b{s.use_per}'])>1:
+                if s.ramp_type == 'TEMPORARILY DISABLED' and sb in bathsweep.keys() and ch in bathsweep[sb].keys() and len(bathsweep[sb][ch][f'p_b{s.use_per}'])>1:
                     # cut on notably slope-increasing 90% p_sat and DON'T kill further data reading from the channel if that occurs
                     # Pysmurf p_sat is a more variable than 90% R_n p_sat when things are working, so 
                     # it doesn't kill on this stuff.
@@ -2134,6 +2229,10 @@ class Temp_Ramp:
             iv['i_tes_offset'] = iv_py['i_tes_offset'] + norm_fit[1]
         else:
             iv['i_tes_offset'] = norm_fit[1]
+        
+        iv['R'] = r_sh * (iv['i_bias']/iv['i_tes'] - 1)
+        iv['R_n'] = r_n 
+        '''# I've never used these and they caused Uv42 to crash:
         #  get pysmurf's target R_op_target:
         #py_target_idx = np.ravel(np.where(iv_py['v_tes']==iv_py['v_tes_target']))[0]
         # above doesn't work b/c sc offset removal can remove the point that it targeted, so:
@@ -2143,8 +2242,8 @@ class Temp_Ramp:
         # Now just refill the rest of the keys same way pysmurf does (except do correct v_bias_target):
         # dict_keys(['R' [Ohms], 'R_n', 'trans idxs', 'p_tes' [pW], 'p_trans',\
         # 'v_bias_target', 'si', 'v_bias' [V], 'si_target', 'v_tes_target', 'v_tes' [uV]]
-        iv['R'] = r_sh * (iv['i_bias']/iv['i_tes'] - 1)
-        iv['R_n'] = r_n 
+        #iv['R'] = r_sh * (iv['i_bias']/iv['i_tes'] - 1) # moved up
+        #iv['R_n'] = r_n # moved out of target section
         # the correct equivalent of pysmurf's i_R_op
         i_R_op = 0
         for i in range(len(iv['R'])-1,-1,-1):
@@ -2152,8 +2251,8 @@ class Temp_Ramp:
                 i_R_op = i
                 break
         iv['v_bias_target'] = iv['v_bias'][i_R_op]
+        iv['v_tes_target'] = iv['v_tes'][i_R_op]'''
         iv['v_tes'] = iv['i_bias']/(1/r_sh + 1/iv['R']) # maybe use R_sh*(i_bias-i_tes)?
-        iv['v_tes_target'] = iv['v_tes'][i_R_op]
         iv['p_tes'] = iv['v_tes']**2/iv['R']
         # pysmurf's p_trans: 
         iv['p_trans'] = np.median(iv['p_tes'][iv['trans idxs'][0]:iv['trans idxs'][1]]) 
@@ -3001,23 +3100,32 @@ class Temp_Ramp:
 # -------------------------- Temp_Ramp Analysis --------------------------------
 # ==============================================================================
 
-def examine_rampy(s):
-    return examine_ramp(s)
+def examine_rampy(s,tes_dict=False):
+    return examine_ramp(s,tes_dict)
 
-def examine_ramp(s):
+def examine_ramp(s,tes_dict=False):
     # you know, maybe make this nnc?
+    if tes_dict:
+            tes_dict = s.test_device.tes_dict
     if s.norm_correct:
         s.plot_ramp_keys_by_BL(s.ramp_raw_arr_nnc[0], f'temp{s.use_per}R_n',
                                f'p_b{s.use_per}R_n',prefix='raw, nnc ',
-                               tes_dict=False)
+                               tes_dict=tes_dict)
     else:
         s.plot_ramp_keys_by_BL(s.ramp_raw_arr[0], f'temp{s.use_per}R_n',
-                               f'p_b{s.use_per}R_n',prefix='raw, nnc ',tes_dict=False)
-    s.plot_ramp_keys_by_BL(s.ramp, 'temp',f'p_b{s.use_per}',prefix='Cut ',tes_dict=False)
+                               f'p_b{s.use_per}R_n',prefix='raw, nnc ',tes_dict=tes_dict)
+    s.plot_ramp_keys_by_BL(s.ramp, 'temp',f'p_b{s.use_per}',prefix='Cut ',tes_dict=tes_dict)
     if s.ramp_type == 'bath':
         s.make_summary_plots()
-        s.make_summary_plots(p_sat_Range=[0,15], t_c_Range=[150,200],
-                                 g_Range=[0,400],n_Range=[2,5])
+        pbr,tcr,gr,nr = ([],[],[],[])
+        if s.test_device.device_type == 'LF_UFM':
+            pbr,tcr,gr,nr = ([0,10],[150,200],[0,175],[2,5])
+        elif s.test_device.device_type == 'MF_UFM':
+            pbr,tcr,gr,nr = ([2,15],[150,200],[50,300],[2,5])
+        elif s.test_device.device_type == 'UHF_UFM':
+            pbr,tcr,gr,nr = ([20,60],[150,200],[300,1200],[2,5])
+        s.make_summary_plots(p_sat_Range=pbr, t_c_Range=tcr,
+                                 g_Range=gr,n_Range=nr)
 
 
 def report_ramp_IV_cat_breakdown(s):
@@ -3645,7 +3753,7 @@ class Bath_Ramp(Temp_Ramp):
 
         std_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-        fig, ax = plt.subplots(nrows=4, figsize=(9,9))
+        fig, ax = plt.subplots(nrows=4, figsize=(6,9))
         
         '''alpha argument to .hist is transparency, which is unnecessary here because only plotting one dataset
         on that histogram. Potentially useful if I separate by frequency, however.'''
@@ -3695,7 +3803,7 @@ class Bath_Ramp(Temp_Ramp):
         numDets = "(numFit = "+ str(totNumDets) + "; "+ ", ".join([str(len(t_cs[i])) + "x"+ tes_freqs_labels[i][:-4] for i in range(len(tes_freqs_labels))]) + ")"
         
         # Maybe add something to note if unmasked excluded?
-        plt.suptitle(f"{s.dName} " + numDets, fontsize=16)
+        plt.suptitle(f"{s.dName}\n" + numDets, fontsize=16)
         plt.tight_layout()
         return ax
 
@@ -3792,7 +3900,7 @@ def thermal_table(s,masked_only=True):
 
     
 def make_thermal_param_export(s,ufm_name,cooldown, thermom_id=None):
-    '''The kind that Kaiwen uses for optical stuff. She mostly just uses R_n ang G
+    '''The kind that Kaiwen uses for optical stuff. She mostly just uses R_n and G
        s is a bathramp for now'''
     tpe = {'data':{},
            'metadata':{'units': {'psat100mk': 'pW',
@@ -4358,7 +4466,7 @@ def ramp_comb_mega_load(dName,mux_map_fp,other_temps,metadata_arrs,opt_power_fp,
                         therm_cal=[1,0], input_file_type="pysmurf", norm_correct=True,
                         sc_offset=True,use_cii=False,bin_tod=True,save_raw_ivas=False,
                         redo_cuts=True,opt_values_exclude=[-42,0.75,0.875,1.0], # add coldload args?
-                        opt_filetype="reload",
+                        opt_filetype="reload", metadata_temp_idx=0,
                         use_per=90): # note the FIRST time opt_filetype="kaiwen"
     '''note: coldloads must be IMMEDIATELY after their bathramp in the metadata_arr list
     # bathramp metadata should contain "bathramp" or "bath_ramp" in title, coldload 
@@ -4412,7 +4520,8 @@ def ramp_comb_mega_load(dName,mux_map_fp,other_temps,metadata_arrs,opt_power_fp,
                              use_per=use_per,
                              sc_offset=sc_offset, use_cii=use_cii, bin_tod=bin_tod, 
                              save_raw_ivas=save_raw_ivas,
-                             opt_values_exclude=opt_values_exclude) 
+                             opt_values_exclude=opt_values_exclude,
+                             metadata_temp_idx=metadata_temp_idx) 
             else: # it better be a coldload!
                 #my_dName = f"{dName} T_b{ot}"
                 td = ramp_list[-1][0].test_device 
@@ -4424,7 +4533,8 @@ def ramp_comb_mega_load(dName,mux_map_fp,other_temps,metadata_arrs,opt_power_fp,
                              use_per=use_per,
                              sc_offset=sc_offset, use_cii=use_cii, bin_tod=bin_tod, 
                              save_raw_ivas=save_raw_ivas,
-                             bath_ramp=ramp_list[-1][0]) 
+                             bath_ramp=ramp_list[-1][0],
+                             metadata_temp_idx=metadata_temp_idx) 
             if redo_cuts:
                 my_ramp.redo_cuts()
             ramp_list.append((my_ramp,ot))
@@ -4673,6 +4783,7 @@ class Ramp_Combination:
         s.ramp_l = ramp_l
         s.opt_filename = opt_filename
         s.use_per = use_per
+        s.p_bp = f"p_b{s.use_per}"
 
         # make ramp_ax 
         tab20 = plt.get_cmap('tab20')
@@ -4681,11 +4792,13 @@ class Ramp_Combination:
                      'bath_temps':np.full((len(ramp_l),),[-42],dtype=object), 
                      'cl_temps':np.full((len(ramp_l),),[-42],dtype=object),
                      'ramp_name':np.full((len(ramp_l),),"-42",dtype=object),
+                     'ramp_type':np.full((len(ramp_l),), "-42", dtype=object), # bath or cold
                      'color':np.full((len(ramp_l),), "-42", dtype=object), # filled post-key_info
                      'idx':np.arange(len(s.ramp_l))}
         for i in range(len(s.ramp_l)):
             o_temp = ramp_l[i][1]
-            ramp = s.ramps['ramp'][i]            
+            ramp = s.ramps['ramp'][i]  
+            s.ramps['ramp_type'][i] = ramp.ramp_type
             if ramp.ramp_type == 'bath':
                 prim = 'bath_temps'
                 sec = 'cl_temps'
@@ -4705,6 +4818,7 @@ class Ramp_Combination:
             s.ramps['ramp_name'][i] = f"r{i}:{ramp.ramp_type} OT{ot_str}"
             ramp.ramp_name = s.ramps['ramp_name'][i]
             ramp.other_temps = s.ramps[sec][i]
+            s.ramps['other_temps'] = o_temp # it's just too convenient.
                
         
         # pull some device/cooldown reference info from test_device
@@ -4761,6 +4875,7 @@ class Ramp_Combination:
         # discrete or continuous affects whether it makes limits or assigns colors
         # key name:  (ramp_to_ref OR key to copy colors/lim from, discrete (d)/continuous (c)/array continuous (ac), units, full name)
         kis = {'ramp_name'    :('ramps','d','','Ramp Name'),
+               'ramp_type'    :('ramps','d','','Type of Ramp'),
                'p_opt_s'      :('opt_powers','c','pW/K','Slope of optical_power(cold-load temp)'),
                'p_opt_err_s'  :('opt_powers','c','pW/K','Slope of optical_power_err(cold-load temp)'),
                'p_opt_c'      :('opt_powers','c','pW','y-intercept of optical_power(cold-load temp)'),
@@ -4818,68 +4933,88 @@ class Ramp_Combination:
                "cov_Tc_eff"   :("tes","c","mK",r"covariance between $T_c$ and $\eta$ in thermal fits"),
                "cov_n_eff"    :("tes","c","",r"covariance between $n$ and $\eta$  in thermal fits"),
                "p_sat100mK"   :("tes","c","pW",'calculated $P_{b'+ f'{s.use_per}'+'}$@$T_b$=100mK, no optical power'),
-               #"p_sat100mK_err":("tes","c","pW","using jacobian from thermal fits"),
+               "p_sat100mK_err":("tes","c","pW","using jacobian from thermal fits")
                #"opt_eff"      :("tes","c","","optical efficiency with dark subtraction"),
               }
-        key_info = {}
-        t20 = plt.cm.tab20(np.linspace(0, 1.0, 19+1))
-        t10 = plt.cm.tab10(np.linspace(0, 1.0, 9+1))
+        s.key_info = {}
+        s.t20 = plt.cm.tab20(np.linspace(0, 1.0, 19+1))
+        s.t10 = plt.cm.tab10(np.linspace(0,1.0,9+1))
         for key, setup in kis.items():
             ax_name, dca, units, name = setup
-            axis = s.axes[ax_name]
-            # moved units to appear for all of them to allow "continuous" colored plotting of discrete variables
-            kd = {'name':name,'ax_name':ax_name,'type':dca, 'units':units}
-            if 'c' in dca:
-                #kd['units'] = units
-                # now, extremes, limits
-                if 'a' in dca:
-                    vals=[]
-                    v_min, v_max = np.inf,-np.inf
-                    arrs = axis[key][s.find_idx_matches([],exclude_unknowns=[key],ax_name=ax_name)]
-                    try:
-                        for arr in arrs:
-                            if min(arr) < v_min:
-                                v_min = min(arr)
-                            if max(arr) > v_max:
-                                v_max = max(arr)
-                        vals=[v_min,v_max]
-                    except BaseException as err:
-                        print(f"{key} key_info err:{err}")
-                else:
-                    vals = axis[key][s.find_idx_matches([],exclude_unknowns=[key],ax_name=ax_name)]
-                try:
-                    kd['extremes'] = [min(vals),max(vals)]
-                    kd['lim'] = kd['extremes'] # for now....maybe use lim finder later
-                except BaseException as err:
-                    print(f"{key} key_info err:{err}")
-            else: # discrete. 
-                vals = axis[key][s.find_idx_matches([],exclude_unknowns=[key],ax_name=ax_name)]
-                # Dynamic allocation is crazy slow, don't do that.
-                # not sure why, but my attempt at avoiding it is taking much longer, so back to that.
-                #unique_vals = np.full((len(vals),),-42,dtype=object)  # Handles everything pretty well
-                unique_vals = []
-                j = 0
-                for val in vals:
-                    if not val in unique_vals: # this handles 
-                        unique_vals.append(val)
-                        j += 1
-                try:
-                    #unique_vals=np.sort(np.array(unique_vals[unique_vals != -42])) 
-                    unique_vals=np.sort(np.array(unique_vals)) 
-                except TypeError as err:
-                    print(f"couldn't sort {key}: {err}")
-                kd['vals'] = unique_vals
-                
-                if len(unique_vals) <= 10:
-                    kd['colors'] = np.array([t10[j,0:3] for j in range(len(unique_vals))])
-                elif len(unique_vals) <=20:
-                    kd['colors'] = np.array([t20[j,0:3] for j in range(len(unique_vals))])
-                else:
-                    print(f"20+ discrete variable?!? {key}")
-                    
-            key_info[key] = kd
-        s.key_info = key_info
+            # moved into separate helper function to make it easier to 
+            # add keys after setup, as I often find myself wanting to do.
+            # probably slower, but not ridiculously so
+            s.update_key_info(key,name,ax_name,dca,units)
         print("Reminder: lim_finder(vals) can get decent no-outlier limits estimates.")
+    
+    def update_key_info(s,key,name,ax_name,dca,units):
+        '''Adds or updates key info
+        s = Ramp_Combination; ca =continuous of arrays
+        key_info = {<key_name, as used in axes>:{
+            #      'name': <full name for display>, 
+            #      'ax_name': <name of primary axis it appears in>
+            #      'type': <discrete 'd', continuous 'c', or continuous arrays 'ca'>
+            #      'units':<units of values; often '' for discrete>
+            #      # if discrete:
+            #      'vals': np.sort()ed ndarray of all unique possible associated values
+            #      'colors': (num_vals,3)-shape ndarray of val-associated RGB colors
+            #      # else, if continuous:
+            #      'extremes': [<lowest value>,<highest value>]
+            #      'lim':[<lowest val to display>,<highest val to display>]
+            #      # note: right now lim=extremes, but did some work on changing,
+            #      can manually set it.}
+        }'''
+        axis = s.axes[ax_name]
+        return pu.dax.update_key_info(s.key_info,key,name,axis,dca,units,
+                                  more_info={'ax_name':ax_name})
+#         if 'c' in dca:
+#             # now, extremes, limits
+#             if 'a' in dca:
+#                 vals=[]
+#                 v_min, v_max = np.inf,-np.inf
+#                 arrs = axis[key][s.find_idx_matches([],exclude_unknowns=[key],ax_name=ax_name)]
+#                 try:
+#                     for arr in arrs:
+#                         if min(arr) < v_min:
+#                             v_min = min(arr)
+#                         if max(arr) > v_max:
+#                             v_max = max(arr)
+#                     vals=[v_min,v_max]
+#                 except BaseException as err:
+#                     print(f"{key} key_info err:{err}")
+#             else:
+#                 vals = axis[key][s.find_idx_matches([],exclude_unknowns=[key],ax_name=ax_name)]
+#             try:
+#                 kd['extremes'] = [min(vals),max(vals)]
+#                 kd['lim'] = kd['extremes'] # for now....maybe use lim finder later
+#             except BaseException as err:
+#                 print(f"{key} key_info err:{err}")
+#         else: # discrete. 
+#             vals = axis[key][s.find_idx_matches([],exclude_unknowns=[key],ax_name=ax_name)]
+#             # Dynamic allocation is crazy slow, don't do that.
+#             # not sure why, but my attempt at avoiding it is taking much longer, so back to that.
+#             #unique_vals = np.full((len(vals),),-42,dtype=object)  # Handles everything pretty well
+#             unique_vals = []
+#             j = 0
+#             for val in vals:
+#                 if not val in unique_vals: # this handles 
+#                     unique_vals.append(val)
+#                     j += 1
+#             try:
+#                 #unique_vals=np.sort(np.array(unique_vals[unique_vals != -42])) 
+#                 unique_vals=np.sort(np.array(unique_vals)) 
+#             except TypeError as err:
+#                 print(f"couldn't sort {key}: {err}")
+#             kd['vals'] = unique_vals
+
+#             if len(unique_vals) <= 10:
+#                 kd['colors'] = np.array([s.t10[j,0:3] for j in range(len(unique_vals))])
+#             elif len(unique_vals) <=20:
+#                 kd['colors'] = np.array([s.t20[j,0:3] for j in range(len(unique_vals))])
+#             else:
+#                 print(f"20+ discrete variable?!? {key}")
+#         s.key_info[key] = kd
+#         return "added"
 
     def lim_finder(s,vals):
         ''' Someday maybe I'll use this...'''
@@ -5460,114 +5595,14 @@ class Ramp_Combination:
     # ============== Functions to FIND data ========== 
     def find_idx_matches(s,match_list,dict_return=False,ax_name='crv',
                          exclude_unknowns=False):
-        '''See Temp_Ramp.find_iva_matches() and str_to_match_list() aka ml()
+        '''Returns what indices of the ax match the match_list criteria.
+        See Temp_Ramp.find_iva_matches() and str_to_match_list() aka ml()
         set exclude_unkowns to a list of axis keys. It will exclude
-        any idxs that have a -42, np.nan, "-", or "?" in that key's value.'''
+        any idxs that have a -42, np.nan, "-", or "?" as that key's value.
+        See below this class for the general implementation.'''
         # like find_ivas, but returns idxs. 
         ax = s.axes[ax_name]
-        # find the matches
-        idx_list = ax['idx']
-        if type(match_list) == str:
-            match_list = str_to_match_list(match_list)
-        if exclude_unknowns:
-            if type(exclude_unknowns) == list:
-                by_keys = exclude_unknowns   
-            else:
-                by_keys = [exclude_unknowns]
-            for by_key in by_keys:
-                match_list = match_list + [(by_key,'!=',-42),(by_key,'!=',-42.0),
-                                           (by_key,'!=',-4.20),
-                                           (by_key,'!=',np.nan),(by_key,'!=','-'),
-                                           (by_key,'!=','?')] #np.nan uses special check from this
-        for match in match_list:
-            idx_list = s.apply_match(ax,idx_list,match)
-        # organization if necessary
-        num_levels=0
-        level_list = []
-        for match_key,match_type,match_val in match_list:
-            if match_type == "=" and (match_val in ['all','any'] or type(match_val) == list):
-                num_levels +=1
-                level_list.append((match_key,match_type,match_val))
-        if not dict_return or num_levels == 0:
-            return idx_list
-        to_return = {}
-        return s.add_dict_level(ax,idx_list,level_list,to_return)
-
-        
-    def add_dict_level(s,ax,idx_list,level_list,d):
-        if len(level_list) == 0: 
-            return idx_list
-        match_key,match_type,match_val = level_list[0]
-        d_keys = np.unique(ax[match_key][idx_list])
-        for key in d_keys:
-            d[key] = s.add_dict_level(ax,idx_list[np.where(ax[match_key][idx_list] == key)[0]],
-                                        level_list[1:],{})
-        return d
-
-    def match_mask(s,ax,idx_list,match):  
-        match_key,match_type,match_val = match
-        if type(match_val) == list or type(match_val) == type(np.arange(0,2)):
-            idx_list_mask = np.full((len(idx_list),), False,dtype=bool)
-            for mv in match_val:
-                idx_list_mask[s.single_match_mask(ax,idx_list,(match_key,match_type,mv))==True] = True
-        else:
-            idx_list_mask = s.single_match_mask(ax,idx_list,match)
-        return idx_list_mask
-    
-    def single_match_mask(s,ax,idx_list,match):
-        match_key,match_type,match_val = match
-        # np.isnan() crashes if given object or str inputs, you've got to be kidding me  
-        # I should consider importing pandas for this. Honestly pandas in general sounds SUPER 
-        # useful. 
-        match_val_is_nan = False
-        try:
-            if np.isnan(match_val):
-                match_val_is_nan = True
-        except TypeError:
-            pass
-        
-        if match_val_is_nan:
-            try:
-                return np.isnan(ax[match_key][idx_list]) 
-            except TypeError: # at least some aren't np.nan. Unfortunately we need to check individually.
-                return np.array([False if not type(val) == float \
-                             else np.isnan(val) for val in ax[match_key][idx_list]])  
-        
-        # Ugh. now that np.nan is handled, we can dothe normal stuff. 
-        idx_list_mask = np.full((len(idx_list),), False,dtype=bool)
-        # numpy can't do elementwise comparisons of string to array of non-string
-        # fortunately if we do detect that situation, the mask is just all False anyway
-        if not ((type(match_val) == str or type(match_val) == np.str_) \
-                and not (type(ax[match_key][0]) == np.str_ or
-                         type(ax[match_key][0]) == str)):
-            idx_list_mask[np.where(ax[match_key][idx_list] == match_val)[0]] = True        
-        return idx_list_mask
-        
-
-    def apply_match(s,ax,idx_list,match):
-        match_key,match_type,match_val = match 
-        if match_type == '=' or match_type == '!=':
-            if match_val in ['all','any'] \
-            or (type(match_val) == list and len(match_val)==1 and
-                (match_val[0] == 'all' or match_val[0]=='any')):
-                if match_type == '!=':
-                    return np.array([])
-                return idx_list
-            else: 
-                idx_list_mask = s.match_mask(ax,idx_list,match)
-                if match_type == "!=":
-                    return idx_list[idx_list_mask == False]
-                return idx_list[idx_list_mask]
-        # there should not be any np.nan match vals on these match_types
-        #assert not np.isnan(match_val), f"can't use 
-        if match_type == '<':
-            return idx_list[np.where(ax[match_key][idx_list] < match_val)[0]]
-        if match_type == '<=':
-            return idx_list[np.where(ax[match_key][idx_list] <= match_val)[0]]
-        if match_type == '>=':
-            return idx_list[np.where(ax[match_key][idx_list] >= match_val)[0]]
-        if match_type == '>':
-            return idx_list[np.where(ax[match_key][idx_list] > match_val)[0]]
+        return find_idx_matches(ax,match_list,dict_return=dict_return, exclude_unknowns=exclude_unknowns)
     
     # Plotting function aliases for backwards compatibility
 #2345678901234567890123456789012345678901234567890123456789012345678901234567890
@@ -5677,22 +5712,31 @@ def replace_rc_thermal_with_bath_ramp_results(s,ramp):
             s.tes['was_fit'][i] = False
             for key in more_scrub:
                 s.tes[key][i] = np.nan
+    # update limits
+    for key in direct_copyables + cov_copyables:
+        if key in s.key_info.keys():
+            d = s.key_info[key]
+            s.update_key_info(key,d['name'],d['ax_name'],'c',d['units'])
                 
 
 
 
-    # ============== Functions to PLOT data ========== 
+# ============== Functions to PLOT data ========== 
+  
     
-    
-def ton_of_sbchs(s,x_key,y_key, start=0,stop='all',match_list=[],exclude_unknowns=False,
+def ton_of_sbchs(s,x_key,y_key, start='random',stop=20,match_list=[],exclude_unknowns=False,
               x_lim=[],y_lim=[],plot_args={'linewidth':0.5}):
     # s=ramp combination
     # check if the number is restricted by our restrictions
     my_sb_chs = np.unique(s.crv['sb_ch'][s.find_idx_matches(match_list,ax_name='crv',
                                                             exclude_unknowns=exclude_unknowns)])
-    
     if stop=='all':
         stop = len(my_sb_chs)
+    if start == 'random':
+        rand_sb_chs = np.array([my_sb_chs[rand.randrange(0,len(my_sb_chs))] for i in range(stop)])
+        my_sb_chs = rand_sb_chs
+        start= 0
+    
     ncols = 4
     nrows = math.ceil((stop-start)/ncols)
     figsize = (ncols*2,nrows*2)
@@ -5750,7 +5794,7 @@ def plot_key_v_key(s,x_key,y_key,match_list=[],x_lim=[],y_lim=[],prefix='',title
     if exclude_unknowns == True:
         exclude_unknowns = [x_key,y_key]
     my_idxs = s.find_idx_matches(match_list,ax_name=ax_name,exclude_unknowns=exclude_unknowns) 
-    plt.plot(axis[x_key][my_idxs], axis[y_key][my_idxs],label=label, **plot_args)# not a good way of doing labelling
+    p = plt.plot(axis[x_key][my_idxs], axis[y_key][my_idxs],label=label, **plot_args)# not a good way of doing labelling
     plt.title(f"{prefix} {y_key} vs. {x_key}\n({s.dName})\n{restrictions}")
     if not own_fig:
         plt.legend()
@@ -5764,6 +5808,7 @@ def plot_key_v_key(s,x_key,y_key,match_list=[],x_lim=[],y_lim=[],prefix='',title
         plt.xlim(x_lim)
     if y_lim:
         plt.ylim(y_lim)
+    return p
 
 #234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
 def plot_key_v_key_grouped_by_key(s,x_key,y_key,by_key,match_list=[],exclude_unknowns=False,
@@ -5799,12 +5844,16 @@ def plot_key_v_key_grouped_by_key(s,x_key,y_key,by_key,match_list=[],exclude_unk
         plt.figure(figsize=default_figsize)
     elif not own_fig == False:
         p= own_fig
-
+    
+    color_override = False
+    if 'color' in plot_args.keys():
+        color_override=True
     for i in range(len(group_names)):
         name = group_names[i]
 
         #name_color = s.key_info[by_key]['colors'][np.where(s.key_info[by_key]['vals'])[0][0],:]
-        plot_args['color'] = colors[i]
+        if not color_override:
+            plot_args['color'] = colors[i]
         g_idxs = idxs[axis[by_key][idxs] == name]
         num_points = len(g_idxs)
         if name in [-42,'?',np.nan]:
@@ -5841,6 +5890,7 @@ def plot_key_v_key_grouped_by_key(s,x_key,y_key,by_key,match_list=[],exclude_unk
             legend = False
     if legend:
         p.legend()
+    return p
 
 def plot_key_v_key_colored_by_key(s,x_key,y_key,by_key,match_list=[],exclude_unknowns=False,
                                   ax_name='crv',x_lim=[],y_lim=[], prefix='',title_override = '',
@@ -5944,6 +5994,7 @@ def plot_key_v_key_colored_by_key(s,x_key,y_key,by_key,match_list=[],exclude_unk
         plt.xlim(x_lim)
     if y_lim:
         plt.ylim(y_lim)
+    return ax
         
 
 # ------------ Histograms and Thermal summary plotting --------------------
@@ -5953,6 +6004,7 @@ def key_hist_by_freq_and_mask(s,key,x_lim=[],bin_size=None,bin_offset=0.15,
                              full_legend_label=True,exclude_bath_ramp_fails=False,
                               hatch_amount=3,sig_figs=3):
     """s a Ramp Combination, but I think this can also have s as a Bath_Ramp?!?"""
+    axis = s.axes[ax_name] # **TODO**: HACK!
     # THis is a hack. 
     if exclude_bath_ramp_fails == True:
         match_list.append(('bath_ramp_fit','=',True))
@@ -5986,7 +6038,7 @@ def key_hist_by_freq_and_mask(s,key,x_lim=[],bin_size=None,bin_offset=0.15,
     if own_fig == True:
         plt.figure(figsize=default_figsize)
         mplt = plt
-    elif own_fig != False: # passed an axis
+    elif own_fig != False: # passed a matplotlib axis
         mplt = own_fig
         
     i=0 # offset the bars a bit to see colors easier; also sets the color
@@ -6064,7 +6116,7 @@ def key_hist_by_freq_and_mask(s,key,x_lim=[],bin_size=None,bin_offset=0.15,
     mplt.legend()
     print(f"tot plotted: {tot_plotted}")
         
-    if own_fig !=True and own_fig != False: # passed an axis
+    if own_fig != False: # passed an axis # used to have own_fig !=True as part of it, what?
         mplt.legend()
         try: # I assume it's usually going to be a subplot
             mplt.set_xlabel(x_ax_label) 
@@ -6131,6 +6183,7 @@ def rc_thermal_summary_plots(s,match_list=[],sig_figs=3,exclude_bath_ramp_fails=
 
     plt.tight_layout()
     fig_t.text(0.03,0.5, '------------ # of TESs ------------', ha='center', va='center',rotation='vertical', fontsize=12)
+    return ax_t
     
 
 def opt_eff_hack_hist(s, x_lim=[],bin_size=0.1,bin_offset=0.15 ):
@@ -6225,6 +6278,64 @@ def make_thermal_summary_plots(s, nBins=60, p_sat_Range=None,t_c_Range=None,
     
     return external_thermal_summary_plots(s,freq_order,vals,nBins=60,x_Ranges=x_Ranges,y_Ranges=y_Ranges)
     
+
+
+# -------------- Formatted outputs -------------
+
+def kaiwen_opt_calc_prereq(rc,add_temps=[]):
+    """takes an rc. use add_temps=[] optional argument to add ex. cl_temp
+    during a bath ramp (or two). Kaiwen needs to calculate optical powers."""
+    to_ret = {}
+    cl_temps = np.array([val for val in np.unique(rc.crv['cl_temp'])] + add_temps)
+    cl_temps = [val for val in np.sort(np.unique(cl_temps))]
+    print(cl_temps)
+    for sb_ch in np.unique(rc.crv['sb_ch']):
+        ch = sb_ch % 1000
+        sb = int((sb_ch-ch)/1000)
+        to_ret[(sb,ch)] = {'T':cl_temps}
+    Path(rc.test_device.out_path).mkdir(parents=True, exist_ok=True)
+    filename = os.path.join(rc.test_device.out_path,f"{make_filesafe(rc.dName)}_cl_temps.npy")
+    np.save(filename,to_ret)
+    print(f"saved to: {filename}")
+    return to_ret
+
+def make_daniel_cl_ramp_output(rc, cl, uxm_id, cooldown_id, filepath='default'):
+    """UXM ID is ex Uv36. Cooldown ex. P-H-014"""
+    if filepath=='default':
+        filepath = f"/data/uxm_results/{uxm_id}/{cooldown_id}/" 
+        filename = make_filesafe(f"{uxm_id}_coldload_{str(np.unique(cl.other_temps))[1:-1]}mK_{cl.metadata_fp_arr[0][-12:-4]}")+".npy"
+        filepath = make_filesafe(filepath)
+    to_ret = {'metadata':{'units': {'temp': 'K', 'psat': 'pW', 'R_n': 'ohm'},
+                         'dataset': cl.metadata_fp_arr[0],
+                         'allowed_rn': [cl.expected_R_n_min, cl.expected_R_n_max],
+                         'cut_increasing_psat': True,
+                         'thermometer_id': None,
+                         'temp_list': cl.temp_list_raw,
+                         'optical_bl': [bly for bly in np.sort(np.array([bl for bl in np.unique(rc.tes['bl']) \
+                                                                         if bl not in cl.test_device.masked_biaslines]))],
+                         'temp_offset': cl.therm_cal[1],
+                         'temp_scaling': cl.therm_cal[0],
+                         'temps_to_cut': np.array([None], dtype=object),
+                         'p_b_%_n': rc.use_per},
+              'data':{}}
+    for sb_ch in np.unique(rc.crv['sb_ch']):
+        ch = sb_ch % 1000
+        sb = int((sb_ch-ch)/1000)
+        crv_idxs = rc.find_idx_matches(ml(f"sb_ch={sb_ch}&is_iv=True&ramp_name={cl.ramp_name}"))
+        # first the things in daniel's format, then what Kaiwen said she needed,
+        cl_temps = [temp for temp in rc.crv['cl_temp'][crv_idxs]]
+        p_b90s = [pb for pb in rc.crv[rc.p_bp][crv_idxs]]
+        r_ns = [r_n for r_n in rc.crv['R_n'][crv_idxs]]
+        if sb not in to_ret['data'].keys():
+            to_ret['data'][sb] = {}
+        to_ret['data'][sb][ch] = {'temp':cl_temps,
+                                  'psat':p_b90s,
+                                  'R_n':r_ns}
+    #Path(rc.test_device.out_path).mkdir(parents=True, exist_ok=True)
+    Path(filepath).mkdir(parents=True, exist_ok=True)
+    #filename = os.path.join(rc.test_device.out_path,f"{make_filesafe(rc.dName)}_cl_temps.npy")
+    np.save(filepath+filename,to_ret)
+    print(f"saved to: {filepath+filename}")
 
 
 # -------------- ASC graphics on single detector (clean up!!) -------------
@@ -6694,10 +6805,131 @@ def check_sc_idx(s,sb,ch,transient_idxs=[]):
     plt.xlim(x_lim)
     plt.ylim(y_lim)
     return transient_idxs
+
+
+# ==============================================================================
+# ----------- Generic dict-ax functions, should be in dif. file ----------------
+# ==============================================================================   
+
+
+
+def find_idx_matches(ax,match_list,dict_return=False, exclude_unknowns=False):
+    '''Returns what indices of the ax's arrays match the match_list criteria.
+        See Temp_Ramp.find_iva_matches() and str_to_match_list() aka ml()
+        set exclude_unkowns to a list of axis keys. It will exclude
+        any idxs that have a -42, np.nan, "-", or "?" as that key's value.
+        See below this class for the general implementation.'''
+    # like find_ivas, but returns idxs. 
+    # find the matches
+    return pu.dax.find_idx_matches(ax,match_list,dict_return=dict_return, exclude_unknowns=exclude_unknowns)
+#     idx_list = ax['idx']
+#     if type(match_list) == str:
+#         match_list = str_to_match_list(match_list)
+#     if exclude_unknowns:
+#         if type(exclude_unknowns) == list:
+#             by_keys = exclude_unknowns   
+#         else:
+#             by_keys = [exclude_unknowns]
+#         for by_key in by_keys:
+#             match_list = match_list + [(by_key,'!=',-42),(by_key,'!=',-42.0),
+#                                        (by_key,'!=',-4.20),
+#                                        (by_key,'!=',np.nan),(by_key,'!=','-'),
+#                                        (by_key,'!=','?')] #np.nan uses special check from this
+#     for match in match_list:
+#         idx_list = apply_match(ax,idx_list,match)
+#     # organization if necessary
+#     num_levels=0
+#     level_list = []
+#     for match_key,match_type,match_val in match_list:
+#         if match_type == "=" and (match_val in ['all','any'] or type(match_val) == list):
+#             num_levels +=1
+#             level_list.append((match_key,match_type,match_val))
+#     if not dict_return or num_levels == 0:
+#         return idx_list
+#     to_return = {}
+#     return add_dict_level(ax,idx_list,level_list,to_return)
+
+        
+def add_dict_level(ax,idx_list,level_list,d):
+    if len(level_list) == 0: 
+        return idx_list
+    match_key,match_type,match_val = level_list[0]
+    d_keys = np.unique(ax[match_key][idx_list])
+    for key in d_keys:
+        d[key] = add_dict_level(ax,idx_list[np.where(ax[match_key][idx_list] == key)[0]],
+                                    level_list[1:],{})
+    return d
+
+def match_mask(ax,idx_list,match):  
+    match_key,match_type,match_val = match
+    if type(match_val) == list or type(match_val) == type(np.arange(0,2)):
+        idx_list_mask = np.full((len(idx_list),), False,dtype=bool)
+        for mv in match_val:
+            idx_list_mask[single_match_mask(ax,idx_list,(match_key,match_type,mv))==True] = True
+    else:
+        idx_list_mask = single_match_mask(ax,idx_list,match)
+    return idx_list_mask
+
+def single_match_mask(ax,idx_list,match):
+    match_key,match_type,match_val = match
+    # np.isnan() crashes if given object or str inputs, you've got to be kidding me  
+    # I should consider importing pandas for this. Honestly pandas in general sounds SUPER 
+    # useful. 
+    match_val_is_nan = False
+    try:
+        if np.isnan(match_val):
+            match_val_is_nan = True
+    except TypeError:
+        pass
+
+    if match_val_is_nan:
+        try:
+            return np.isnan(ax[match_key][idx_list]) 
+        except TypeError: # at least some aren't np.nan. Unfortunately we need to check individually.
+            return np.array([False if not type(val) == float \
+                         else np.isnan(val) for val in ax[match_key][idx_list]])  
+
+    # Ugh. now that np.nan is handled, we can dothe normal stuff. 
+    idx_list_mask = np.full((len(idx_list),), False,dtype=bool)
+    # numpy can't do elementwise comparisons of string to array of non-string
+    # fortunately if we do detect that situation, the mask is just all False anyway
+    if not ((type(match_val) == str or type(match_val) == np.str_) \
+            and not (type(ax[match_key][0]) == np.str_ or
+                     type(ax[match_key][0]) == str)):
+        idx_list_mask[np.where(ax[match_key][idx_list] == match_val)[0]] = True        
+    return idx_list_mask
+
+
+def apply_match(ax,idx_list,match):
+    match_key,match_type,match_val = match 
+    if match_type == '=' or match_type == '!=':
+        if match_val in ['all','any'] \
+        or (type(match_val) == list and len(match_val)==1 and
+            (match_val[0] == 'all' or match_val[0]=='any')):
+            if match_type == '!=':
+                return np.array([])
+            return idx_list
+        else: 
+            idx_list_mask = match_mask(ax,idx_list,match)
+            if match_type == "!=":
+                return idx_list[idx_list_mask == False]
+            return idx_list[idx_list_mask]
+    # there should not be any np.nan match vals on these match_types
+    #assert not np.isnan(match_val), f"can't use 
+    if match_type == '<':
+        return idx_list[np.where(ax[match_key][idx_list] < match_val)[0]]
+    if match_type == '<=':
+        return idx_list[np.where(ax[match_key][idx_list] <= match_val)[0]]
+    if match_type == '>=':
+        return idx_list[np.where(ax[match_key][idx_list] >= match_val)[0]]
+    if match_type == '>':
+        return idx_list[np.where(ax[match_key][idx_list] > match_val)[0]]
     
 # ==============================================================================
 # ----------- Loading function big enough to not be at top ---------------------
-# ==============================================================================    
+# ==============================================================================   
+
+
 
 # copied from https://github.com/simonsobs/sodetlib/blob/master/sodetlib/analysis/det_analysis.py
 # except the sc_offset argument added. 

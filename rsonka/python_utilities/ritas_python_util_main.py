@@ -1,6 +1,7 @@
 # Import the auxilliary utility files. Directly, because I don't want multiple .'s to calll
 #from numpyPlotting import *
 #from prettyPrintTable import *
+# would add dict_analyzer_pretty in there too. 
 
 # The above doesn't work if your file is in a different directory than the utility folder, apparently.  
 
