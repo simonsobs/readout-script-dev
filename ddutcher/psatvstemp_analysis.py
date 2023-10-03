@@ -21,6 +21,8 @@ def collect_psatvstemp_data(
     temp_scaling=1,
     min_rn=0,
     max_rn=np.inf,
+    min_psat=0,
+    max_psat=np.inf,
     bl_plot=True,
     freq_plot=False,
     array_freq="mf",
@@ -63,6 +65,8 @@ def collect_psatvstemp_data(
         In ohms.
     max_rn: float, default inf.
         In ohms.
+    min_psat: float, default 0.
+        In pW.
     bl_plot : bool, default True.
         Plot the data by bias line.
     freq_plot : bool, default False.
@@ -151,7 +155,7 @@ def collect_psatvstemp_data(
 
         data_dict = process_iv_data(
             fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn,
-            temps_to_cut, psat_level=psat_level,
+            temps_to_cut, psat_level=psat_level, min_psat=min_psat, max_psat=max_psat,
         )
     if not data_dict:
         raise ValueError("Problem reading or processing the data: "
@@ -170,7 +174,7 @@ def collect_psatvstemp_data(
                 'temp':'K',
                 'psat':'pW',
                 'R_n':'ohm'
-            }
+            },
         },
         'data': data_dict
     }
@@ -178,9 +182,12 @@ def collect_psatvstemp_data(
     results_dict["metadata"]["dataset"] = metadata_fp
     results_dict["metadata"]["allowed_rn"] = [min_rn, max_rn]
     results_dict["metadata"]["psat_level"] = psat_level
+    results_dict["metadata"]["max_psat"] = max_psat
+    results_dict["metadata"]["min_psat"] = min_psat
     results_dict["metadata"]["cut_increasing_psat"] = cut_increasing_psat
     results_dict["metadata"]["thermometer_id"] = thermometer_id
     results_dict["metadata"]["temp_list"] = temp_list
+    results_dict["metadata"]["used_temps"] = sorted(list(used_temps))
     results_dict["metadata"]["optical_bl"] = optical_bl
     results_dict["metadata"]["temp_offset"] = temp_list
     results_dict["metadata"]["temp_scaling"] = temp_list
@@ -192,7 +199,7 @@ def collect_psatvstemp_data(
 
 def process_iv_data(
     fp, data_dict, temp_corr, bl, cut_increasing_psat,
-    min_rn, max_rn, temps_to_cut, psat_level=0.9,
+    min_rn, max_rn, temps_to_cut, psat_level=0.9, min_psat=0, max_psat=np.inf,
 ):
     if "iv_raw_data" in fp:
         iv_analyzed_fp = fp.replace("iv_raw_data", "iv")
@@ -256,7 +263,8 @@ def process_iv_data(
                 d["p_sat"] *= 1e12
 
                 psat = do_iv_cuts(
-                    d, min_rn, max_rn, psat_level=psat_level)
+                    d, min_rn, max_rn, psat_level=psat_level,
+                    min_psat=min_psat, max_psat=max_psat)
                 if psat and cut_increasing_psat:
                     try:
                         prev_psat = data_dict[bl][sb][ch]["psat"][-1]
@@ -265,7 +273,7 @@ def process_iv_data(
                     except:
                         pass
 
-                if psat and not np.isnan(psat):
+                if psat:
                     # key creation
                     if bl not in data_dict.keys():
                         data_dict[bl] = {}
@@ -296,7 +304,8 @@ def process_iv_data(
                 continue
             for ch, d in iv_analyzed[sb].items():
                 psat = do_iv_cuts(
-                    d, min_rn, max_rn, psat_level=psat_level)
+                    d, min_rn, max_rn, psat_level=psat_level,
+                    min_psat=min_psat, max_psat=max_psat)
                 if psat and cut_increasing_psat:
                     try:
                         prev_psat = data_dict[bl][sb][ch]["psat"][-1]
@@ -324,7 +333,7 @@ def process_iv_data(
     return data_dict
 
 
-def do_iv_cuts(d, min_rn, max_rn, psat_level=0.9):
+def do_iv_cuts(d, min_rn, max_rn, psat_level=0.9, min_psat=0, max_psat=np.inf):
     # same cuts as for iv plots
     if np.abs(np.std(d["R"][-100:]) / np.mean(d["R"][-100:])) > 5e-3:
         return False
@@ -335,10 +344,13 @@ def do_iv_cuts(d, min_rn, max_rn, psat_level=0.9):
     except:
         return False
     psat = d["p_tes"][psat_idx]
-    if psat < 0:
+    if psat < min_psat or psat > max_psat:
         return False
 
     if not min_rn < d["R_n"] < max_rn:
+        return False
+
+    if not np.isfinite(psat):
         return False
 
     return psat
@@ -381,7 +393,7 @@ def plot_by_freq(
 ):
     if array_freq.lower() == "lf":
         freq1, freq2 = "30", "40"
-        bl_freq_map = {bl: freq1 for bl in [0, 3]}
+        bl_freq_map = {bl: freq1 for bl in [0, 3, 5]}
         bl_freq_map.update({bl: freq2 for bl in [1, 2]})
     else:
         if array_freq.lower() == "uhf":
@@ -625,6 +637,9 @@ def plot_params(
             "range": (1, 5),
             "label": "%sGHz: %.1f $\pm$ %.1f",
         },
+        "R_n" : {
+            "range" : (4e-3, 10e-3),
+        }
     }
     if param_plot_kw is not None:
         try:
@@ -655,7 +670,7 @@ def plot_params(
 
     if assem_type.lower() == "ufm":
         if array_freq.lower() == "lf":
-            bl_freq_map = {bl: freq1 for bl in [0, 3]}
+            bl_freq_map = {bl: freq1 for bl in [0, 3, 5]}
             bl_freq_map.update({bl: freq2 for bl in [1, 2]})
         else:
             bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
@@ -733,7 +748,7 @@ def plot_params(
             ax[i].set_xlabel(d["xlabel"])
             ax[i].set_ylabel("# of TESs")
             ax[i].set_title(" ")
-            ax[i].legend(fontsize="small", loc="upper right")
+            ax[i].legend(fontsize="small", loc="best")
 
     ax[0].set_title(title)
     ax[0].axvspan(
@@ -752,7 +767,8 @@ def plot_params(
     for freq, d in plotting_dict.items():
         all_rn += d["R_n"]
     med = np.nanmedian(all_rn)
-    plt.hist(all_rn, ec="k", histtype="step", bins=20, range=(2e-3, 10e-3))
+    d = param_plot_kw["R_n"]
+    plt.hist(all_rn, ec="k", histtype="step", bins=20, range=d['range'])
     plt.axvline(
         med,
         linestyle="--",
@@ -830,6 +846,8 @@ def analyze_bathramp(
     temp_scaling=1,
     min_rn=0,
     max_rn=np.inf,
+    min_psat=0,
+    max_psat=np.inf,
     param_plot_kw=None,
     cut_increasing_psat=True,
     psat_level=0.9,
@@ -852,6 +870,8 @@ def analyze_bathramp(
         psat_level=psat_level,
         min_rn=min_rn,
         max_rn=max_rn,
+        min_psat=min_psat,
+        max_psat=max_psat,
         temps_to_cut=temps_to_cut,
         optical_bl=optical_bl,
         bl_plot=plot,

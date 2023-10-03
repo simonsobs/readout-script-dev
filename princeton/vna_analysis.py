@@ -15,6 +15,8 @@ from glob import glob
 import pandas as pd
 import argparse
 
+import warnings
+warnings.filterwarnings('ignore')
 
 def analyze_vna(
     data_dir, output_dir=None, bw=0.2,
@@ -71,17 +73,19 @@ def analyze_vna(
     for pth in vna_files:
         now_freq, now_resp_real, now_resp_im = np.loadtxt(
             pth, skiprows=3, delimiter=',', unpack=True)
-        freq = np.concatenate((freq, now_freq))
-        resp = np.concatenate((resp, now_resp_real + 1j * now_resp_im))
+        freq = np.concatenate((freq, now_freq[0:-1]))
+        resp = np.concatenate((resp, (now_resp_real + 1j * now_resp_im)[0:-1]))
 
     s21_db = 20 * np.log10(np.abs(resp))
 
     detrended_s21 = correct_trend(freq, resp)
     peak_inds, props = scipy.signal.find_peaks(
             -1 * detrended_s21,
-            height=1,
+            height=1.5,
             prominence=0.2,
         )
+    if len(peak_inds) > 924:
+        print(f"WARNING: More than 924 resonances found: {len(peak_inds)}.")
 
     if plot_peaks:
 #         plot_vna_peaks(
@@ -167,18 +171,18 @@ def plot_vna_muxband_peaks(freq, s21_db, peak_inds, suptitle='', output_dir=None
         ax.axvline(sb_f, color='k', linestyle=':')
         if sb>3:
             break
-        ax.text(sb_f+0.15, 3.5, "SMuRF Band %0d/%0d" % (sb,sb+4),
+        ax.text(sb_f+0.15, 13, "SMuRF Band %0d/%0d" % (sb,sb+4),
                 color='k', fontsize=6, weight='heavy')
 
     ax.set_xlabel("Frequency (GHz)")
     ax.set_ylabel("S21 Magnitude (dB)")
     ax.set_xticks(np.arange(4, 6.3, 0.1), minor=True)
-    ax.set_ylim(-40,5)
+    ax.set_ylim(-40,15)
     ax.set_xlim(3.9,6.1)
     ax.set_title("%0d resonances" % len(peak_inds))
     plt.suptitle(suptitle)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    ax.legend(ncol=3, fontsize='small', loc=(0.39,0.8))
+    ax.legend(ncol=3, fontsize='small', loc=(0.38,0.78))
 
     if output_dir is not None:
         fname = "_".join([suptitle, "vna_muxband_peaks.png"]).strip("_")
@@ -314,7 +318,7 @@ def get_qi(Q, Q_e_real, Q_e_imag):
 
 
 def get_br(Q, f_0):
-    return f_0 * (2 * Q) ** -1
+    return f_0 / Q
 
 
 def get_dip_depth(s21):
@@ -408,7 +412,7 @@ def full_fit(freq, s21_complex):
 
 def fit_vna_resonances(
     freq, s21_complex, peak_inds,
-    low_indice=[], high_indice=[], f_delta=2e5,
+    low_indice=[], high_indice=[], f_delta=1e5,
 ):
     """
     This function takes in s21 data and position of the peak,

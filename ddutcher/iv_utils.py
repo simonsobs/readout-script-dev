@@ -84,9 +84,9 @@ def plot_yield_iv(
                     all_bl_iv[bl][sb] = dict()
                 for chan, d in now[sb].items():
                     # IV cuts
-                    if (d['R'][-1] < 5e-3):
+                    if (d['R'][-1] < 2e-3):
                         continue
-                    if len(np.where(d['R'] > 15e-3)[0]) > 0:
+                    elif np.abs(np.std(d["R"][-100:]) / np.mean(d["R"][-100:])) > 5e-3:
                         continue
                     all_bl_iv[bl][sb][chan] = d
 
@@ -110,7 +110,7 @@ def plot_yield_iv(
     fig.supxlabel(x_axis, fontsize=20)
     plt.suptitle(plot_title, fontsize=20)
     plt.tight_layout()
-    plt.subplots_adjust(top=0.95)
+    plt.subplots_adjust(top=0.9)
 
     if return_data:
         return all_bl_iv
