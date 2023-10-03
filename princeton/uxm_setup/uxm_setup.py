@@ -1,6 +1,6 @@
 # uxm_setup.py
 
-import os
+import os, sys
 import numpy as np
 from scipy import signal
 import matplotlib
@@ -10,9 +10,12 @@ from sodetlib.operations import uxm_setup as op
 from sodetlib import noise
 import logging
 
+sys.path.append("readout-script-dev/rsonka/uxm_setup_optimize")
+import uxm_setup_optimize_confluence as confl
+
 logger = logging.getLogger(__name__)
 
-def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
+def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False, bias_TESs=0):
     """
     Use values in cfg to setup UXM for use.
     """
@@ -25,6 +28,7 @@ def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
     S.set_filter_disable(0)
     S.set_downsample_factor(cfg.dev.exp.get("downsample_factor", 20))
     S.set_mode_dc()
+    
 
     for band in bands:
         logger.info(f"setting up band {band}")
@@ -39,6 +43,13 @@ def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
         logger.info(
             "band {} tone power {}".format(band, S.amplitude_scale[band])
         )
+        if bias_TESs: # no need to overheat, just set the AMC
+            if band < 4:
+                bias_bls = np.arange(6)
+            else: # RS: Wait, I'd need to set the previous ones to 0 for it to work like that
+                bias_bls = np.arange(6,12,1) # though it did accidentally make the all-noise fair...
+            S.overbias_tes_all(bias_groups=bias_bls,tes_bias=bias_TESs)
+            logger.info(f"Unlatched then Biased TESs on these BLs {bias_bls} to {bias_TESs} V")
 
         if estimate_phase_delay:
             logger.info("estimating phase delay")
@@ -50,11 +61,11 @@ def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
         S.set_synthesis_scale(band, cfg.dev.exp.get("synthesis_scale", 1))
         logger.info("running find freq")
         if band in [0,4]:
-            start_freq = -240
+            start_freq = -230
         else:
             start_freq = -249
         S.find_freq(band, start_freq=start_freq, tone_power=cfg.dev.bands[band]["tone_power"],
-                    grad_kernel_width=2, pad=1, min_gap=1,# amp_cut=0.01,
+                    grad_kernel_width=2, pad=1, min_gap=1,
                     make_plot=True)
         logger.info("running setup notches")
         S.setup_notches(
@@ -95,6 +106,32 @@ def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
     S.save_tune()
     cfg.dev.update_experiment({'tunefile': S.tune_file}, update_file=True)
 
+def uxm_setup_main_ops(S,cfg,args,estimate_phase_delay=False):
+    # DRY things up a bit. Estimate_phase_delay is separate because
+    # setup_and_optimize.py doesn't have that arg. 
+    bands = args.bands
+    if args.bands is None:
+        bands = S.config.get("init").get("bands")                   
+    #if args.confluence_fp == 'default':
+    #     args.confluence_fp = confl.start_confluence_log_file(S,cfg,bands)
+    # run the defs in this file
+    uxm_setup(S=S, cfg=cfg, bands=bands, estimate_phase_delay=estimate_phase_delay,
+              bias_TESs=args.bias_TESs)
+    # take noise and plot histograms
+    nsamps = S.get_sample_frequency() * args.acq_time
+    nperseg = 2 ** round(np.log2(nsamps/5))
+    to_return = noise.take_noise(
+        S, cfg, acq_time=args.acq_time, show_plot=False, save_plot=True,
+        nperseg=nperseg,
+    ) # RS: hopefully that doesn't turn off the TES biases, so bias_TESs works.
+    #logger.info(f"Confluence markdown summary at:\n{args.confluence_fp}")
+    
+    # Clean up
+    if args.bias_TESs > 0:
+        S.C.write_ps_en(0)
+        S.all_off()
+    return to_return
+   
 
 if __name__ == "__main__":
     import argparse
@@ -133,6 +170,20 @@ if __name__ == "__main__":
         help="Set the log level for printed messages. The default is pulled from "
         +"$LOGLEVEL, defaulting to INFO if not set.",
     )
+    parser.add_argument(
+    "--bias-TESs",
+    type=float,
+    default=0,
+    help="Bias TESs to this voltage during the setup and optimization. Default 0 (no bias)." 
+    + "You might set it high (ex 19V) to remove TES phonon noise from noise circuit. "
+    + "If you do, run as umm instead of ufm, as will be closer to umm parameters.",
+)
+    parser.add_argument(
+    "--confluence-fp",
+    type=str,
+    default='default',
+    help="filepath to the confluence formatting summary to add to; makes new if not given.",
+)
 
     args = cfg.parse_args(parser)
     if args.loglevel is None:
@@ -142,18 +193,15 @@ if __name__ == "__main__":
         format="%(levelname)s: %(funcName)s: %(message)s", level=numeric_level
     )
     
+
+
     S = cfg.get_smurf_control(dump_configs=True, make_logfile=(numeric_level != 10))
 
     # # power amplifiers
     success = op.setup_amps(S, cfg)
     if not success:
         raise OSError("Amps could not be powered.")
-    # run the defs in this file
-    uxm_setup(S=S, cfg=cfg, bands=args.bands, estimate_phase_delay=args.estimate_phase_delay)
-    # take noise and plot histograms
-    nsamps = S.get_sample_frequency() * args.acq_time
-    nperseg = 2 ** round(np.log2(nsamps/5))
-    noise.take_noise(
-        S, cfg, acq_time=args.acq_time, show_plot=False, save_plot=True,
-        nperseg=nperseg,
-    )
+    
+    # Do the setup and noise
+    uxm_setup_main_ops(S,cfg,args,estimate_phase_delay=args.estimate_phase_delay)
+    

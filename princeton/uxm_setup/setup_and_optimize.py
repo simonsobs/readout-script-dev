@@ -13,9 +13,11 @@ from sodetlib.operations import uxm_setup as op
 from sodetlib import noise
 import logging
 
+sys.path.append("readout-script-dev/rsonka/uxm_setup_optimize")
 sys.path.append('/readout-script-dev/ddutcher')
-from uxm_setup import uxm_setup
+from uxm_setup import uxm_setup_main_ops
 from uxm_optimize_quick import uxm_optimize
+import uxm_setup_optimize_confluence as confl
 
 logger = logging.getLogger()
 
@@ -65,6 +67,22 @@ parser.add_argument(
     +"$LOGLEVEL, defaulting to INFO if not set.",
 )
 
+parser.add_argument(
+    "--bias-TESs",
+    type=float,
+    default=0,
+    help="Bias TESs to this voltage during the setup and optimization. Default 0 (no bias)." 
+    + "You might set it high (ex 19V) to remove TES phonon noise from noise circuit. "
+    + "If you do, run as umm instead of ufm, as will be closer to umm parameters.",
+)
+
+parser.add_argument(
+    "--confluence-fp",
+    type=str,
+    default='default',
+    help="filepath to the confluence formatting summary to add to; makes new if not given. ",
+)
+
 # parse the args for this script
 args = cfg.parse_args(parser)
 if args.loglevel is None:
@@ -92,6 +110,10 @@ success = op.setup_amps(S, cfg)
 if not success:
     raise OSError("Amps could not be powered.")
 
+# Setup the confluence format file, or find an old one
+confluence_fp = confl.start_confluence_log_file(S,cfg,args.bands)
+args.confluence_fp = confluence_fp
+
 # run the defs in this file
 uxm_optimize(
     S=S,
@@ -101,13 +123,15 @@ uxm_optimize(
     low_noise_thresh=low_noise_thresh,
     med_noise_thresh=med_noise_thresh,
     high_noise_thresh=high_noise_thresh,
+    bias_TESs=args.bias_TESs,
+    confluence_fp=confluence_fp
 )
 
-uxm_setup(S=S, cfg=cfg, bands=args.bands, estimate_phase_delay=False)
+# Setup, take noise, make plots
+uxm_setup_main_ops(S, cfg, args)
+# ^ The above should turn the biases back off if you put a >0 value in.
+# If this script doesn't complete you may need to do so manually. 
 
-# take noise and make  plots
-nsamps = S.get_sample_frequency() * args.acq_time
-nperseg = 2 ** round(np.log2(nsamps / 5))
-noise.take_noise(
-    S, cfg, acq_time=args.acq_time, show_plot=False, save_plot=True, nperseg=nperseg,
-)
+
+
+
