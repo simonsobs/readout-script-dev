@@ -37,6 +37,7 @@ cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)
 S = cfg.get_smurf_control()
 S.load_tune(cfg.dev.exp['tunefile'])
+hlr = S.high_low_current_ratio
 
 fieldnames = ['bath_temp', 'bias_v', 'band', 'data_path','step_size']
 if not os.path.exists(out_fn):
@@ -49,11 +50,11 @@ S.overbias_tes_all(
     high_current_mode=True,
     overbias_voltage=19,
     overbias_wait=2,
-    tes_bias=bias_high/5.71,
+    tes_bias= bias_high/hlr,
     cool_wait=3,
 )
 
-step_array = np.arange(bias_high/5.71, (bias_low - 1/5.71), -1/5.71)
+step_array = np.arange(bias_high/hlr, (bias_low - 1/hlr), -1/hlr)
 for bias_voltage_step in step_array:
     bias_array = np.zeros(S._n_bias_groups)
     bias_voltage = np.round(bias_voltage_step, 3)
@@ -62,11 +63,7 @@ for bias_voltage_step in step_array:
     S.set_tes_bias_bipolar_array(bias_array) 
     time.sleep(30)
 
-    if (bias_voltage < 4) and (bias_voltage > 1):
-        transition = True
-    else:
-        transition = False
-    bsa = take_bias_steps(S, cfg, analysis_kwargs={'transition':transition, 'fit_tmin':7.5e-4})
+    bsa = take_bias_steps(S, cfg, analysis_kwargs={'transition':True, 'fit_tmin':7.5e-4})
 
     row = {}
     row['bath_temp'] = bath_temp

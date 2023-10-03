@@ -33,7 +33,7 @@ else:
     bias_groups = args.bgs
 slot_num = args.slot
 if slot_num == 6:
-    bias_groups = [0,1,2]
+    bias_groups = [1,2,3,5]
 bath_temp = args.temp
 out_fn = args.output_file
 
@@ -43,9 +43,10 @@ S = cfg.get_smurf_control()
 
 S.load_tune(cfg.dev.exp['tunefile'])
 
-for band in [0,1]:
-    S.run_serial_gradient_descent(band);
-    S.run_serial_eta_scan(band);
+for band in [1,2,3]:
+    for _ in range(3):
+        S.run_serial_gradient_descent(band)
+        S.run_serial_eta_scan(band)
     S.set_feedback_enable(band,1) 
     S.tracking_setup(
         band, reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],
@@ -70,7 +71,7 @@ for bg in bias_groups:
 S.set_tes_bias_bipolar_array(bias_array)
 time.sleep(10)
 
-#take 30s timestream for noise
+#take 20s timestream for noise
 sid = sdl.take_g3_data(S, 20)
 am = sdl.load_session(cfg.stream_id, sid, base_dir=cfg.sys['g3_dir'])
 ctime = int(am.timestamps[0])
@@ -117,7 +118,7 @@ for bias_gp in bias_groups:
         bias_high=19,
         bias_low=0,
         bias_step=0.025,
-        overbias_voltage=12,
+        overbias_voltage=15,
         cool_wait=30,
         high_current_mode=False,
         make_channel_plots=False,

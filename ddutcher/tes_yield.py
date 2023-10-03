@@ -47,7 +47,7 @@ def tickle_and_iv(
     else:
         high_current_mode = False
 
-    for bg in target_bg:
+    for ind, bg in enumerate(target_bg):
         row = {}
         row['bath_temp'] = str(bath_temp)
         row['bias_line'] = bg
@@ -55,11 +55,16 @@ def tickle_and_iv(
 
         logger.info(f'Taking IV on bias line {bg}, all smurf bands.')
 
+        # if ind == 0:
+        #     cool_wait = 300
+        # else:
+        cool_wait = 30
+
         iv_data = det_ops.take_iv(
             S, cfg,
             bias_groups = [bg], wait_time=0.01, bias_high=bias_high,
             bias_low=bias_low, bias_step=bias_step,
-            overbias_voltage=overbias_voltage, cool_wait=30,
+            overbias_voltage=overbias_voltage, cool_wait=cool_wait,
             high_current_mode=high_current_mode,
             make_channel_plots=False, save_plots=True,
         )
@@ -68,6 +73,7 @@ def tickle_and_iv(
         with open(out_fn, 'a', newline = '') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writerow(row)
+        time.sleep(30)
 
     return out_fn
 
@@ -93,6 +99,8 @@ def tes_yield(S, target_bg, out_fn, start_time):
                 if (d['R'][-1] < 2e-3):
                     continue
                 elif np.abs(np.std(d["R"][-100:]) / np.mean(d["R"][-100:])) > 5e-3:
+                    continue
+                elif (d['R_n'] > 2e-2):
                     continue
                 all_data_IV[bl][sb][chan] = d
 

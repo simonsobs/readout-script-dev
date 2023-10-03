@@ -54,7 +54,7 @@ S.overbias_tes_all(
 )
 time.sleep(120)
 
-step_array = np.arange(bias_high, bias_low - 0.5, -0.5)
+step_array = np.arange(bias_high, bias_low - 0.1, -0.1)
 #step_size = 0.01 
 for bias_voltage_step in step_array:
     bias_array = np.zeros(S._n_bias_groups)
@@ -62,9 +62,9 @@ for bias_voltage_step in step_array:
     for bg in bias_groups:
         bias_array[bg] = bias_voltage
     S.set_tes_bias_bipolar_array(bias_array) 
-    time.sleep(60)
+    time.sleep(30)
 
-    bsa = take_bias_steps(S, cfg, analysis_kwargs={'fit_tmin':7.5e-4})
+    bsa = take_bias_steps(S, cfg, analysis_kwargs={'fit_tmin':7.5e-4, 'transition':True})
 
     row = {}
     row['bath_temp'] = bath_temp
@@ -83,7 +83,7 @@ for bias_voltage_step in step_array:
     S.set_tes_bias_bipolar_array(bias_array)
     time.sleep(10)
 
-    sid = sdl.take_g3_data(S, 30)
+    sid = sdl.take_g3_data(S, 20)
     am = sdl.load_session(cfg.stream_id, sid, base_dir=cfg.sys['g3_dir'])
     ctime = int(am.timestamps[0])
     noisedict = noise.get_noise_params(

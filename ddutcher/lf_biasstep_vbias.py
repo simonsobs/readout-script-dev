@@ -47,7 +47,7 @@ if not os.path.exists(out_fn):
 S.overbias_tes_all(
     bias_groups=bias_groups,
     high_current_mode=False,
-    overbias_voltage=12,
+    overbias_voltage=15,
     overbias_wait=2,
     tes_bias=bias_high,
     cool_wait=3,
@@ -62,7 +62,7 @@ for bias_voltage_step in step_array:
     S.set_tes_bias_bipolar_array(bias_array) 
     time.sleep(30)
 
-    if bias_voltage < 8:
+    if bias_voltage < 12:
         transition = True
     else:
         transition = False

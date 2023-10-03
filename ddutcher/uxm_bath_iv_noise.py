@@ -30,7 +30,7 @@ parser.add_argument('--output_file',type=str)
 
 args = parser.parse_args()
 if args.bgs is None:
-    bias_groups = range(12)
+    bias_groups = [5,1,2,3] #range(12)
 else:
     bias_groups = args.bgs
 slot_num = args.slot
@@ -43,7 +43,7 @@ S = cfg.get_smurf_control()
 
 S.load_tune(cfg.dev.exp['tunefile'])
 
-for band in [0,1,2,3,4,5,6,7]:
+for band in [0,1,2,3]: #,4,5,6,7]:
     S.run_serial_gradient_descent(band);
     S.run_serial_eta_scan(band);
     S.set_feedback_enable(band,1) 
@@ -117,7 +117,7 @@ for bias_gp in bias_groups:
         bias_high=19,
         bias_low=0,
         bias_step = 0.025,
-        overbias_voltage=19,
+        overbias_voltage=15,
         cool_wait=30,
         high_current_mode=False,
         make_channel_plots=False,
