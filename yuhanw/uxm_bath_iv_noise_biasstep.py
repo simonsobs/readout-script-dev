@@ -47,6 +47,8 @@ if slot_num == 4:
     fav_tune_files = '/data/smurf_data/tune/1634507354_tune.npy'
 if slot_num == 5:
     fav_tune_files = '/data/smurf_data/tune/1633652773_tune.npy'
+if slot_num == 7:
+    fav_tune_files = '/data/smurf_data/tune/crate1slot7/1668551823_tune.npy'
 
 
 S.all_off()
@@ -69,7 +71,7 @@ for band in bands:
     S.set_att_uc(band,cfg.dev.bands[band]['uc_att'])
     print('band {} uc_att {}'.format(band,S.get_att_uc(band)))
 
-    S.amplitude_scale[band] = cfg.dev.bands[band]['drive']
+    S.amplitude_scale[band] = cfg.dev.bands[band]['tone_power']
     print('band {} tone power {}'.format(band,S.amplitude_scale[band] ))
 
     print('setting synthesis scale')
@@ -77,7 +79,7 @@ for band in bands:
     S.set_synthesis_scale(band,1)
 
     print('running relock')
-    S.relock(band,tone_power=cfg.dev.bands[band]['drive'])
+    S.relock(band,tone_power=cfg.dev.bands[band]['tone_power'])
     
     S.run_serial_gradient_descent(band);
     S.run_serial_eta_scan(band);
@@ -234,7 +236,7 @@ for bl in bias_groups:
         target_vbias_list.append(0)
     else:
         target_vbias_list.append(round(med_target_v_bias,1))
-target_vbias_list = np.append(target_vbias_list,[0,0,0])
+
 
 
 
@@ -385,7 +387,7 @@ for bl in bias_groups:
         target_vbias_list.append(0)
     else:
         target_vbias_list.append(round(med_target_v_bias,1))
-target_vbias_list = np.append(target_vbias_list,[0,0,0])
+
 
 
 
@@ -540,7 +542,7 @@ for bl in bias_groups:
         target_vbias_list.append(0)
     else:
         target_vbias_list.append(round(med_target_v_bias,1))
-target_vbias_list = np.append(target_vbias_list,[0,0,0])
+
 
 
 

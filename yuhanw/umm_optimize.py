@@ -20,7 +20,7 @@ from sodetlib.det_config import DetConfig
 
 
 band = 0
-slot_num = 3
+slot_num = 4
 
 cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)

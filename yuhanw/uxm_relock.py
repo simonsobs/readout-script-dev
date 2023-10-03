@@ -18,13 +18,14 @@ import pickle as pkl
 from scipy import signal
 import os
 import time
+import warnings
 
 from sodetlib.det_config import DetConfig
 warnings.filterwarnings("ignore")
 
-fav_tune_files = '/data/smurf_data/tune/1655932343_tune.npy'
+fav_tune_files = '/data/smurf_data/tune/crate1slot7/1668551823_tune.npy'
 bands = [0,1,2,3,4,5,6,7]
-slot_num = 2
+slot_num = 7
 
 cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)

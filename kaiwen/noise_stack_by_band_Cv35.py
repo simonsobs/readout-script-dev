@@ -1,81 +1,34 @@
 '''
 Code written in Oct 2021 by Yuhan Wang
-setup UFM and generate tune file. notice need to get the input power before muxchip correct first
-chosen nperseg to be 2**12 based on the sample rate 200Hz and 20s timestream also script run time
-
-Nov,decided to use 2**16 and diasble warning
+taking short time stream and report noise property by band
 '''
-
-
 
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 
 import pysmurf.client
 import argparse
 import numpy as np
-import pickle as pkl
+import os
+import time
+import glob
+from sodetlib.det_config  import DetConfig
+import numpy as np
+from scipy.interpolate import interp1d
+import argparse
+import time
+import csv
 from scipy import signal
 import os
 import time
-import warnings
-from sodetlib.det_config import DetConfig
 
+import warnings
 warnings.filterwarnings("ignore")
 
-bands = [0,1,2,3,4,5,6,7]
-slot_num = 7
 
-cfg = DetConfig()
-cfg.load_config_files(slot=slot_num)
-S = cfg.get_smurf_control()
-
-print('plotting directory is:')
-print(S.plot_dir)
-
-S.all_off()
-S.set_rtm_arb_waveform_enable(0)
-S.set_filter_disable(0)
-S.set_downsample_factor(20)
-S.set_mode_dc()
-
-for band in bands:
-	print('setting up band {}'.format(band))
-
-	S.set_att_dc(band,cfg.dev.bands[band]['dc_att'])
-	print('band {} dc_att {}'.format(band,S.get_att_dc(band)))
-
-	S.set_att_uc(band,cfg.dev.bands[band]['uc_att'])
-	print('band {} uc_att {}'.format(band,S.get_att_uc(band)))
-
-	S.amplitude_scale[band] = cfg.dev.bands[band]['tone_power']
-	print('band {} tone power {}'.format(band,S.amplitude_scale[band] ))
-
-	print('estimating phase delay')
-	S.estimate_phase_delay(band)
-	print('setting synthesis scale')
-	# hard coding it for the current fw
-	S.set_synthesis_scale(band,1)
-	print('running find freq')
-	S.find_freq(band,tone_power=cfg.dev.bands[band]['tone_power'],make_plot=True)
-	print('running setup notches')
-	S.setup_notches(band,tone_power=cfg.dev.bands[band]['tone_power'],new_master_assignment=True)
-	print('running serial gradient descent and eta scan')
-	S.run_serial_gradient_descent(band);
-	S.run_serial_eta_scan(band);
-	print('running tracking setup')
-	S.set_feedback_enable(band,1) 
-	S.tracking_setup(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], make_plot=False, save_plot=False, show_plot=False, channel=S.which_on(band), nsamp=2**18, lms_freq_hz=cfg.dev.bands[band]['lms_freq_hz'], meas_lms_freq=cfg.dev.bands[band]['meas_lms_freq'],feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
-	
-	# print('checking tracking')
-	# S.check_lock(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], lms_freq_hz=None, feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
-
-print('taking 20s timestream')
-start_time=S.get_timestamp()
 fs = S.get_sample_frequency()
 # hard coded (for now) variables
-stream_time = 20
+stream_time = 120
 
 # non blocking statement to start time stream and return the dat filename
 dat_path = S.stream_data_on()
@@ -84,7 +37,6 @@ time.sleep(stream_time)
 # end the time stream
 S.stream_data_off()
 
-
 start_time = dat_path[-14:-4]  
 
 timestamp, phase, mask, tes_bias = S.read_stream_data(dat_path, return_tes_bias=True)
@@ -92,7 +44,7 @@ print(f'loaded the .dat file at: {dat_path}')
 
 # hard coded variables
 bands, channels = np.where(mask != -1)
-phase *= S.pA_per_phi0 / (2.0 * np.pi)  # uA
+phase *= S.pA_per_phi0 / (2.0 * np.pi)  # pA
 sample_nums = np.arange(len(phase[0]))
 t_array = sample_nums / fs
 
@@ -118,8 +70,9 @@ for band in sorted(stream_by_band_by_channel.keys()):
     for channel in sorted(stream_single_band.keys()):
         stream_single_channel = stream_single_band[channel]
 
-
-        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend,nperseg=2**16)
+        nsamps = S.get_sample_frequency() * stream_time                                                                                                                                                     
+        nperseg = 2 ** round(np.log2(nsamps / 5))
+        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend,nperseg=nperseg)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])
@@ -146,7 +99,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
     for channel in sorted(stream_single_band.keys()):
         stream_single_channel = stream_single_band[channel]
         f, Pxx = signal.welch(stream_single_channel,
-                fs=fs, detrend=detrend,nperseg=2**16)
+                fs=fs, detrend=detrend,nperseg=nperseg)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])
@@ -162,8 +115,13 @@ for band in sorted(stream_by_band_by_channel.keys()):
     ax_this_band.grid()
     ax_this_band.axvline(1.4,linestyle='--', alpha=0.6,label = '1.4 Hz',color = 'C1')
     ax_this_band.axvline(60,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C2')
+    # ax_this_band.axvline(3.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
+    # ax_this_band.axvline(4.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
+    # ax_this_band.axvline(5.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
+    # ax_this_band.axvline(6.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
+    # ax_this_band.axvline(7.,linestyle='--', alpha=0.6,label = '60 Hz',color = 'C3')
     ax_this_band.set_title(f'band {band} yield {band_yield}')
-    ax_this_band.set_ylim([1,5e3])
+    ax_this_band.set_ylim([1,1e4])
 
 
 
@@ -181,6 +139,12 @@ print(f'Saving plot to {os.path.join(S.plot_dir, save_name)}')
 plt.savefig(os.path.join(S.plot_dir, save_name))
 
 
+
+
+
+
 S.save_tune()    
+
+
 print('plotting directory is:')
 print(S.plot_dir)

@@ -23,8 +23,8 @@ import scipy.signal as signal
 
 
 
-band = 1
-slot_num = 4
+band = 5
+slot_num = 3
 
 cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)
@@ -48,7 +48,7 @@ print("band {} dc_att {}".format(band, S.get_att_dc(band)))
 S.set_att_uc(band, cfg.dev.bands[band]["uc_att"])
 print("band {} uc_att {}".format(band, S.get_att_uc(band)))
 
-S.amplitude_scale[band] = cfg.dev.bands[band]["drive"]
+S.amplitude_scale[band] = cfg.dev.bands[band]["tone_power"]
 print("band {} tone power {}".format(band, S.amplitude_scale[band]))
 
 # print("estimating phase delay")
@@ -57,10 +57,10 @@ print("band {} tone power {}".format(band, S.amplitude_scale[band]))
 # # hard coding it for the current fw
 # S.set_synthesis_scale(band, 1)
 # print("running find freq")
-S.find_freq(band, tone_power=cfg.dev.bands[band]["drive"], make_plot=True)
+S.find_freq(band, tone_power=cfg.dev.bands[band]["tone_power"], make_plot=True)
 print("running setup notches")
 S.setup_notches(
-    band, tone_power=cfg.dev.bands[band]["drive"], new_master_assignment=True
+    band, tone_power=cfg.dev.bands[band]["tone_power"], new_master_assignment=True
 )
 print("running serial gradient descent and eta scan")
 S.run_serial_gradient_descent(band)
