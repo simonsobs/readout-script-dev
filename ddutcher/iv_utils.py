@@ -117,7 +117,12 @@ def plot_yield_iv(
 
 
 def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
+                  target_bands=range(8),
                   suptitle=None, return_bgmap=False):
+
+    target_bg = np.atleast_1d(target_bg)
+    target_bands = np.atleast_1d(target_bands)
+
     if isinstance(metadata, str):
         data_dict = np.genfromtxt(metadata, delimiter=",", dtype=None, names=True, encoding=None)
         data = data_dict['data_path']
@@ -175,7 +180,8 @@ def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
                 fp = data[ind]
             except KeyError:
                 fp = data_dict[bl]
-            fp = fp.replace("/data/smurf_data/", "/data2/smurf_data/")
+            if not os.path.isfile(fp):
+                fp = fp.replace("/data/smurf_data/", "/data2/smurf_data/")
             if bl not in all_bl_iv.keys():
                 all_bl_iv[bl] = dict()
     #         try:
@@ -207,36 +213,40 @@ def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
     bgmap['bgmap'] = np.array(bgmap['bgmap'])
 
     tune = np.load(tunefile, allow_pickle=True).item()
-    fig, axes = plt.subplots(nrows=2, figsize=(9,8))
-    for half in [0,1]:
-        ax = axes[half]
-        for smurf_band in np.arange(4) + half * 4:
-            freqs, subbands, chans, _ = np.loadtxt(
-                tune[smurf_band]['channel_assignment'], delimiter=',', unpack=True)
-            ax.vlines(freqs, linestyle ='--', color='gray', linewidth=1, ymin=0, ymax=1)
-            for bl in np.arange(6) + half * 6:
-                if smurf_band not in all_bl_iv[bl].keys():
-                    continue
-                if bl_labeled[bl]:
-                    label = None
-                else:
-                    label = bl
-                    bl_labeled[bl]= True
-                good_freqs = []
-                for ch in all_bl_iv[bl][smurf_band].keys():
-                        good_freqs += [freqs[chans == ch][0]]
-                ax.vlines(good_freqs, linestyle ='-', color=bl_colors[bl], linewidth=1,
-                         ymin=0, ymax=1, label=label)
-        handles, labels = ax.get_legend_handles_labels()
-        order = [labels.index(str(bl)) for bl in (np.arange(6) + half * 6)]
+    nrows = len(np.unique(target_bands//4))
+    fig, axes = plt.subplots(nrows=nrows, figsize=(9,4*nrows))
+    for smurf_band in sorted(target_bands):
+        if nrows > 1:
+            ax = axes[smurf_band // 4]
+        else:
+            ax = axes
+        freqs, subbands, chans, _ = np.loadtxt(
+            tune[smurf_band]['channel_assignment'], delimiter=',', unpack=True)
+        ax.vlines(freqs, linestyle ='--', color='gray', linewidth=1, ymin=0, ymax=1)
+        for bl in target_bg:
+            if smurf_band not in all_bl_iv[bl].keys():
+                continue
+            if bl_labeled[bl]:
+                label = None
+            else:
+                label = bl
+                bl_labeled[bl]= True
+            good_freqs = []
+            for ch in all_bl_iv[bl][smurf_band].keys():
+                    good_freqs += [freqs[chans == ch][0]]
+            ax.vlines(good_freqs, linestyle ='-', color=bl_colors[bl], linewidth=1,
+                     ymin=0, ymax=1, label=label)
+    for ax in np.atleast_1d(axes):
+#         handles, labels = ax.get_legend_handles_labels()
+#         order = [labels.index(str(bl)) for bl in (np.arange(6) + half * 6)]
 
         ax.legend(
-            [handles[idx] for idx in order],["BL %s" % labels[idx] for idx in order],
+#            [handles[idx] for idx in order],["BL %s" % labels[idx] for idx in order],
             ncol=6, loc='upper center', framealpha=1,
         )
         ax.set_xlabel("Frequency (MHz)")
-        ax.set_ylabel(f"AMC {half}")
-    axes[0].set_title("Channels with IV curves", fontsize=12)
+#         ax.set_ylabel(f"AMC {half}")
+    np.atleast_1d(axes)[0].set_title("Channels with IV curves", fontsize=12)
     plt.suptitle(suptitle)
     plt.tight_layout()
     

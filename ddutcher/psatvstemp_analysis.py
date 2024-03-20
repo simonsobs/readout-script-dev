@@ -113,6 +113,7 @@ def collect_psatvstemp_data(
         temps_to_cut = np.atleast_1d(temps_to_cut)
     used_temps = set()
     # `used_temps` is just printed to screen for user reference
+    tunefiles = set()
     for line in metadata:
         try:
             temp, bias, bl, sb, fp, note = line
@@ -153,8 +154,18 @@ def collect_psatvstemp_data(
         temp_corr = np.round(temp * temp_scaling + temp_offset, 3)
         used_temps.add(temp_corr)
 
+        iv_analyzed = load_iv_file(fp)
+        if 'meta' in iv_analyzed.keys():
+            tunefiles.add(iv_analyzed['meta']['tunefile'])
+        elif 'metadata' in iv_analyzed.keys():
+            now = iv_analyzed['metadata']
+            if 'iv_info' in now.keys():
+                now = now['iv_info']
+            tunefiles.add(now['tune_file'])
+        else:
+            print(f"No tunefile found for {fp}")
         data_dict = process_iv_data(
-            fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn,
+            iv_analyzed, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn,
             temps_to_cut, psat_level=psat_level, min_psat=min_psat, max_psat=max_psat,
         )
     if not data_dict:
@@ -175,6 +186,7 @@ def collect_psatvstemp_data(
                 'psat':'pW',
                 'R_n':'ohm'
             },
+            'tunefiles':list(tunefiles)
         },
         'data': data_dict
     }
@@ -197,10 +209,7 @@ def collect_psatvstemp_data(
         return results_dict
 
 
-def process_iv_data(
-    fp, data_dict, temp_corr, bl, cut_increasing_psat,
-    min_rn, max_rn, temps_to_cut, psat_level=0.9, min_psat=0, max_psat=np.inf,
-):
+def load_iv_file(fp):
     if "iv_raw_data" in fp:
         iv_analyzed_fp = fp.replace("iv_raw_data", "iv")
     elif "iv_info" in fp:
@@ -221,7 +230,13 @@ def process_iv_data(
                 f"Could not find {iv_analyzed_fp} or "
                 f"any file matching {new_fp} on daq."
             )
-    iv_analyzed = np.load(iv_analyzed_fp, allow_pickle=True).item()
+    return np.load(iv_analyzed_fp, allow_pickle=True).item()
+
+
+def process_iv_data(
+    iv_analyzed, data_dict, temp_corr, bl, cut_increasing_psat,
+    min_rn, max_rn, temps_to_cut, psat_level=0.9, min_psat=0, max_psat=np.inf,
+):
     if "data" in iv_analyzed.keys():
         # older sodetlib iv_analyze.py files
         iv_analyzed = iv_analyzed["data"]
