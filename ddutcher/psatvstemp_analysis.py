@@ -917,6 +917,8 @@ def plot_bathramp_iv(
     metadata_fp,
     x_axis='p_tes',
     y_axis='R',
+    min_rn = 0,
+    max_rn = np.inf,
     temp=100,
     ls_ch=15,
     plot_title="",
@@ -1002,7 +1004,7 @@ def plot_bathramp_iv(
                 d['p_tes'] *= 1e12
                 d['p_sat'] *= 1e12 
 
-                psat = do_iv_cuts(d, 6e-3, 9e-3)
+                psat = do_iv_cuts(d, min_rn, max_rn)
 
                 if psat:
                     # key creation
@@ -1018,7 +1020,7 @@ def plot_bathramp_iv(
                 if sb == "high_current_mode":
                     continue
                 for ch, d in iv_analyzed[sb].items():
-                    psat = do_iv_cuts(d, 6e-3, 9e-3)
+                    psat = do_iv_cuts(d, min_rn, max_rn)
 
                     if psat:
                         # key creation

@@ -1,0 +1,258 @@
+"""
+optical_efficiency.py
+Functions to compute optical efficiency, assuming a beam-filling load.
+Builds off of data products defined in psatvstemp_analysis.py
+"""
+import numpy as np
+import matplotlib.pyplot as plt
+import os, sys
+from glob import glob
+from scipy import constants as cnst
+from scipy.interpolate import interp1d
+from scipy.integrate import quad
+from scipy.optimize import curve_fit
+
+filter_dir = "/home/kaiwenz/opt_eff_packaged/filters/"
+
+
+def filter_func(filters):
+    """
+    Return combined transmission of the specified LPE filters.
+    
+    Parameters
+    ----------
+    `filters` : str or list of str
+        If 'lf,'mf' or 'uhf', the standard set of Princeton LPE filters is used.
+        If given as a list, the transmission of each filter will be multiplied
+        together to yield the total transmission of the filter stack.
+    
+    Returns
+    -------
+    filter_func : function
+        Function that, when supplied with a list of frequencies in Hz,
+        returns the transmission spectrum at those frequencies.
+    """
+    if isinstance(filters, str):
+        if filters.lower() not in ['lf','mf','uhf']:
+            raise ValueError(
+                "`filters` must either be one of ['lf','mf','uhf'] or " +
+                "a list of valid Cardiff LPE filter IDs"
+            )
+        elif filters.lower() == 'mf':
+            filters = ['K2951','K2908']
+        elif filters.lower() == 'uhf':
+            filters = ['K2938','K2805']
+        elif filters.lower() == 'lf':
+            raise NotImplemented("LF LPE filters not yet implemented")
+    elif not isinstance(filters, list):
+        raise TypeError("`filters` must either be str or list of str")
+
+    filter_data = []
+    for filt_id in filters:
+        try:
+            data = np.loadtxt(os.path.join(filter_dir, f'{filt_id}.txt'))
+        except ValueError:
+            data = np.loadtxt(os.path.join(filter_dir, f'{filt_id}.txt'), delimiter=',')
+        filter_data += [data]
+
+    # Add a loop here to determine which data set has more restricted range?
+
+    filter_func = interp1d(1e2 * cnst.c * (filter_data[0])[:,0], (filter_data[0])[:,1])
+    for filt in range(1, len(filter_data)):
+        filter_func= interp1d(
+            1e2 * cnst.c * (filter_data[0])[:,0],
+            (filter_data[filt])[:,1] * filter_func(1e2 * cnst.c * (filter_data[filt])[:,0])
+        )
+
+    return filter_func
+
+
+def bandpass_funcs(array_freq):
+    """
+    Parameters
+    ----------
+    array_freq : {'lf', 'mf', or 'uhf'}
+        
+    """
+    freq1 = np.loadtxt(os.path.join(filter_dir, f"{array_freq.upper()}_1_peak.txt"))
+    freq2 = np.loadtxt(os.path.join(filter_dir, f"{array_freq.upper()}_2_peak.txt"))
+    
+    freq1_func = interp1d(freq1[:,0]*1e9, freq1[:,1] / np.max(freq1[:,1]))
+    freq2_func = interp1d(freq2[:,0]*1e9, freq2[:,1] / np.max(freq2[:,1]))
+    
+    return freq1_func, freq2_func
+
+
+def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
+    if isinstance(cl_data,str):
+        cl_data = np.load(cl_data,allow_pickle=True).item()
+
+    if used_temps is None:
+        try:
+            used_temps = cl_data['metadata']['used_temps']
+        except KeyError:
+            raise ValueError(
+                "Must specify `used_temps` for older version CL datafile.")
+
+    if array_freq.lower() == 'mf':
+        freq1, freq2 = '90','150'
+    elif array_freq.lower() == 'uhf':
+        freq1, freq2 = '220','280'
+    elif array_freq.lower() == 'lf':
+        raise NotImplemented("Sorry, I don't support LF at this time.")
+        freq1, freq2 = '30','40'
+    else:
+        raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")
+
+    avg_dark_deltaPsat = {freq1:[[] for temp in used_temps],
+                          freq2:[[] for temp in used_temps]
+                         }
+
+    for bg in cl_data['data'].keys():
+        if bg in cl_data['metadata']['optical_bl']:
+            continue
+        if bg in [0,1,4,5,8,9]:
+            freq=freq1
+        else:
+            freq=freq2
+        for sb in cl_data['data'][bg].keys():
+            for ch, d in cl_data['data'][bg][sb].items():
+                if len(d['temp']) < 2:
+                    continue
+                if d['temp'][0] != used_temps[0]:
+                    continue
+                delta_psat = d['psat'] - d['psat'][0]
+                for ind, t in enumerate(d['temp']):
+                    idx = used_temps.index(t)
+                    avg_dark_deltaPsat[freq][idx] += [delta_psat[ind]]
+
+    for freq, arr in avg_dark_deltaPsat.items():
+        for i, dp_arr in enumerate(arr):
+            avg_dark_deltaPsat[freq][i] = np.nanmean(dp_arr)
+
+    return avg_dark_deltaPsat
+
+
+def compute_opteff(cl_data, do_dark_correction=True, used_temps=None,
+                   array_freq='mf', filters=None):
+
+    if isinstance(cl_data, str):
+        cl_data = np.load(cl_data,allow_pickle=True).item()
+
+    if used_temps is None:
+        try:
+            used_temps = cl_data['metadata']['used_temps']
+        except KeyError:
+            raise ValueError(
+                "Must specify `used_temps` for older version CL datafile.")
+    if array_freq.lower() == 'mf':
+        freq1, freq2 = '90','150'
+        lower_f,upper_f = 62e9, 199e9
+    elif array_freq.lower() == 'uhf':
+        freq1, freq2 = '220','280'
+        lower_f, upper_f = 180e9, 329e9
+    elif array_freq.lower() == 'lf':
+        raise NotImplemented("Sorry, I don't support LF at this time.")
+        freq1, freq2 = '30','40'
+    else:
+        raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")
+
+    if do_dark_correction:
+        dark_correction = compute_dark_correction(
+            cl_data, used_temps=used_temps, array_freq=array_freq)        
+
+    if filters is None:
+        filters = array_freq
+
+    filt_func = filter_func(filters)
+    freq1_func, freq2_func = bandpass_funcs(array_freq)
+
+    def freq1_fit(temps, C, eta):
+        ans=np.zeros(len(temps))
+        for i, T in enumerate(temps):
+            ans[i] =(C-eta*1e12*quad(
+                lambda v: freq1_func(v)*filt_func(v)*cnst.h*v /
+                (np.e**(cnst.h*v/(cnst.k*T))-1), lower_f, upper_f)[0])
+        return ans        
+        
+    def freq2_fit(temps, C, eta):
+        ans=np.zeros(len(temps))
+        for i, T in enumerate(temps):
+            ans[i] =(C-eta*1e12*quad(
+                lambda v: freq2_func(v)*filt_func(v)*cnst.h*v /
+                (np.e**(cnst.h*v/(cnst.k*T))-1), lower_f, upper_f)[0])
+        return ans        
+        
+    eta_dict = {
+        'optical':{freq1:[],freq2:[]},
+        'dark':{freq1:[], freq2:[]},
+    }
+
+    for bg in cl_data['data'].keys():
+        if bg in cl_data['metadata']['optical_bl']:
+            coupling = 'optical'
+        else:
+            coupling = 'dark'
+        if bg in [0,1,4,5,8,9]:
+            freq=freq1
+            fit_func = freq1_fit
+        else:
+            freq=freq2
+            fit_func = freq2_fit
+
+        for sb in cl_data['data'][bg].keys():
+            for ch, d in cl_data['data'][bg][sb].items():
+                psat = np.array(d['psat'])
+                temp = np.array(d['temp'])
+
+                if do_dark_correction:
+                    for i, t in enumerate(temp):
+                        idx = used_temps.index(t)
+                        psat[i] -= dark_correction[freq][idx]
+
+                if len(temp)<2:
+                    continue
+
+                popt, pcov = curve_fit(fit_func, temp, psat)
+                eta_dict[coupling][freq].append(popt[1])
+
+    return eta_dict
+
+
+def plot_opteff(eta, ufm='', array_freq='mf'):
+    fig, ax = plt.subplots(figsize=(9,4), ncols=2)
+
+    if array_freq.lower() == 'mf':
+        freq1, freq2 = '90','150'
+    elif array_freq.lower() == 'uhf':
+        freq1, freq2 = '220','280'
+    elif array_freq.lower() == 'lf':
+        raise NotImplemented("Sorry, I don't support LF at this time.")
+        freq1, freq2 = '30','40'
+    else:
+        raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")    
+
+    for i, freq in enumerate([freq1,freq2]):
+        ax[i].hist(eta['optical'][freq], range=(0,1.2), bins=24)
+        med = np.nanmedian(eta['optical'][freq])
+        ax[i].axvline(med, linestyle='--', color='k', label=f"{med:.2f}")
+        ax[i].set_title(f'{freq} GHz')
+
+        ax[i].legend(fontsize='small')
+        ax[i].set_xlabel("Optical Efficiency")
+        ax[i].set_ylabel("Count")
+
+    fig.suptitle(f'{ufm} Optical Efficiency')
+
+    fig, ax = plt.subplots(figsize=(9,4), ncols=2)
+    for i, freq in enumerate([freq1, freq2]):
+        ax[i].hist(eta['dark'][freq], range=(-0.9,0.9), bins=24)
+        med = np.nanmedian(eta['dark'][freq])
+        ax[i].axvline(med, linestyle='--', color='k', label=f"{med:.2f}")
+        ax[i].set_title(f'{freq} GHz')
+
+        ax[i].legend(fontsize='small')
+        ax[i].set_xlabel("Dark Efficiency")
+        ax[i].set_ylabel("Count")
+
+    fig.suptitle(f'{ufm} Dark Efficiency')

@@ -112,16 +112,17 @@ def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11]):
 
 def compute_transition_values(results_dict):
     """
-    Compute the per-bias line values at 50% Rn for tau and NEP.
+    Compute the per-bias line values at 50% Rn.
     """
+    quants = ['tau', 'nep', 'rfrac', 'r_tes', 'nei', 'p_tes']
     transition_values = {
         'bands':[],
         'channels':[],
         'bgmap':[],
-        'tau':[],
-        'nep':[],
-        'rfrac':[],
     }
+    for k in quants:
+        transition_values[k] = []
+    
     if 'data' in results_dict.keys():
         data = results_dict['data']
     for ind, bg in enumerate(sorted(list(data.keys()))):
@@ -152,9 +153,8 @@ def compute_transition_values(results_dict):
                 transition_values['bands']+=[sb]
                 transition_values['channels']+=[ch]
                 transition_values['bgmap']+=[bg]
-                transition_values['tau']+=[d['tau'][m][ind]]
-                transition_values['nep']+=[d['nep'][m][ind]]
-                transition_values['rfrac']+=[d['rfrac'][m][ind]]
+                for k in quants:
+                    transition_values[k] += [d[k][m][ind]]
 
     for k, val in transition_values.items():
         transition_values[k] = np.asarray(val)
@@ -167,7 +167,7 @@ def plot_transition_hist(
     trans_dict, key, target_bg=range(12),
     plot_by_bl=False, array_freq = 'uhf',
     nrows=3, ncols=4, xrange=None, bins=None, plot_title='',
-    return_plot=False,
+    return_plot=False, **kwargs,
 ):
     transition_values = trans_dict['data']
     optical_bl = trans_dict['metadata'].get('optical_bl', [])
@@ -202,6 +202,7 @@ def plot_transition_hist(
             ax.axvline(med, linestyle='--', color='k', label=label.format(med=med))
             ax.legend(fontsize='small', loc='upper right')
             ax.set_title(f'BL {bg}: {len(to_plot)} TESs')
+            ax.set(**kwargs)
         fig.supxlabel(xlabel)
         fig.suptitle(title, fontsize=16)
         fig.supylabel("Count")
@@ -249,6 +250,7 @@ def plot_transition_hist(
                    label=label.format(med=np.nanmedian(freq2_opt)))
         for ax in axes:
             ax.legend(loc='upper right')
+            ax.set(**kwargs)
 
         fig.supxlabel(xlabel)
         fig.suptitle(title, fontsize=16)
