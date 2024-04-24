@@ -182,10 +182,10 @@ def compute_opteff(cl_data, do_dark_correction=True, used_temps=None,
                 lambda v: freq2_func(v)*filt_func(v)*cnst.h*v /
                 (np.e**(cnst.h*v/(cnst.k*T))-1), lower_f, upper_f)[0])
         return ans        
-        
+
     eta_dict = {
-        'optical':{freq1:[],freq2:[]},
-        'dark':{freq1:[], freq2:[]},
+        'metadata': cl_data['metadata'],
+        'data' : {}
     }
 
     for bg in cl_data['data'].keys():
@@ -214,14 +214,24 @@ def compute_opteff(cl_data, do_dark_correction=True, used_temps=None,
                     continue
 
                 popt, pcov = curve_fit(fit_func, temp, psat)
-                eta_dict[coupling][freq].append(popt[1])
+
+                # key creation
+                if bg not in eta_dict['data'].keys():
+                    eta_dict['data'][bg] = dict()
+                if sb not in eta_dict['data'][bg].keys():
+                    eta_dict['data'][bg][sb] = dict()
+                eta_dict['data'][bg][sb][ch] = popt[1]
 
     return eta_dict
 
 
-def plot_opteff(eta, ufm='', array_freq='mf'):
-    fig, ax = plt.subplots(figsize=(9,4), ncols=2)
-
+def plot_opteff(eta_dict, ufm='', array_freq='mf', return_plots=False):
+    """
+    eta_dict = {
+        'optical':{freq1:[],freq2:[]},
+        'dark':{freq1:[], freq2:[]},
+    }
+    """
     if array_freq.lower() == 'mf':
         freq1, freq2 = '90','150'
     elif array_freq.lower() == 'uhf':
@@ -230,29 +240,55 @@ def plot_opteff(eta, ufm='', array_freq='mf'):
         raise NotImplemented("Sorry, I don't support LF at this time.")
         freq1, freq2 = '30','40'
     else:
-        raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")    
+        raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")
+
+    eta = {
+        'optical':{freq1:[],freq2:[]},
+        'dark':{freq1:[], freq2:[]},
+    }
+    # Process eta_dict to be simpler for plotting.
+    for bg in eta_dict['data'].keys():
+        if bg in eta_dict['metadata']['optical_bl']:
+            coupling = 'optical'
+        else:
+            coupling = 'dark'
+        if bg in [0,1,4,5,8,9]:
+            freq=freq1
+        else:
+            freq=freq2
+        for sb in eta_dict['data'][bg].keys():
+            eta[coupling][freq] += list(eta_dict['data'][bg][sb].values())
+
+    fig_opt, ax = plt.subplots(figsize=(9,4), ncols=2)
 
     for i, freq in enumerate([freq1,freq2]):
-        ax[i].hist(eta['optical'][freq], range=(0,1.2), bins=24)
-        med = np.nanmedian(eta['optical'][freq])
-        ax[i].axvline(med, linestyle='--', color='k', label=f"{med:.2f}")
+        to_plot = np.array(eta['optical'][freq])
+        to_plot = to_plot[to_plot>0]
+        ax[i].hist(to_plot, range=(0,1.2), bins=24)
+        med = np.nanmedian(to_plot)
+        std = np.nanstd(to_plot)
+        ax[i].axvline(med, linestyle='--', color='k', label=f"{med:.2f}$\pm${std:.2f}")
         ax[i].set_title(f'{freq} GHz')
 
         ax[i].legend(fontsize='small')
         ax[i].set_xlabel("Optical Efficiency")
         ax[i].set_ylabel("Count")
 
-    fig.suptitle(f'{ufm} Optical Efficiency')
+    fig_opt.suptitle(f'{ufm} Optical Efficiency')
 
-    fig, ax = plt.subplots(figsize=(9,4), ncols=2)
+    fig_dark, ax = plt.subplots(figsize=(9,4), ncols=2)
     for i, freq in enumerate([freq1, freq2]):
         ax[i].hist(eta['dark'][freq], range=(-0.9,0.9), bins=24)
         med = np.nanmedian(eta['dark'][freq])
-        ax[i].axvline(med, linestyle='--', color='k', label=f"{med:.2f}")
+        std = np.nanstd(eta['dark'][freq])
+        ax[i].axvline(med, linestyle='--', color='k', label=f"{med:.2f}$\pm${std:.2f}")
         ax[i].set_title(f'{freq} GHz')
 
         ax[i].legend(fontsize='small')
         ax[i].set_xlabel("Dark Efficiency")
         ax[i].set_ylabel("Count")
 
-    fig.suptitle(f'{ufm} Dark Efficiency')
+    fig_dark.suptitle(f'{ufm} Dark Efficiency')
+
+    if return_plots:
+        return fig_opt, fig_dark

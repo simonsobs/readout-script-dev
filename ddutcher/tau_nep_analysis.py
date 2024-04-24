@@ -7,26 +7,26 @@ def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11]):
     nrows, ncols = 3, 4
     metadata = np.genfromtxt(metadata_fp, delimiter=",",unpack=False,
                              dtype=None, names=True, encoding=None)
-    biasstep_lines = metadata[0::2]
-    noise_lines = metadata[1::2]
+    biasstep_lines = metadata[
+        ["bias_step_analysis" in line['data_path'] for line in metadata]]
+    noise_lines = metadata[
+        ["take_noise" in line['data_path'] for line in metadata]]
+
+    # We'll need some info from the bias step file
+    bsa_fp = biasstep_lines[0]['data_path']
+    if not os.path.isfile(bsa_fp):
+        bsa_fp = bsa_fp.replace('/data/','/data2/')
+    bsa = np.load(bsa_fp, allow_pickle=True).item()
 
     if bgmap_fp is None:
-        # Read in bias group map from last bias step
-        bsa_fp = metadata[-4][-2]
-        if not os.path.isfile(bsa_fp):
-            bsa_fp = bsa_fp.replace('/data/','/data2/')
-        bsa = np.load(bsa_fp, allow_pickle=True).item()
         bgmap_fp = bsa['meta']['bgmap_file']
     bg_map = np.load(bgmap_fp, allow_pickle=True).item()
 
     # Channels might not be the same in bgmap and in noise/biassteps:
     # make a channel mask.
-    bsa_fp = biasstep_lines[0][-2]
-    if not os.path.isfile(bsa_fp):
-        bsa_fp = bsa_fp.replace('/data/','/data2/')
-    bias = np.load(bsa_fp, allow_pickle=True).item()
+    
     bgmap_bandchan = list(zip(bg_map['bands'], bg_map['channels']))
-    bias_bandchan = list(zip(bias['bands'], bias['channels']))
+    bias_bandchan = list(zip(bsa['bands'], bsa['channels']))
     if len(bgmap_bandchan) > len(bias_bandchan):
         bg_mask = [(b,c) in bias_bandchan for (b,c) in bgmap_bandchan]
         bs_mask = np.ones(len(bias_bandchan), dtype=bool)
