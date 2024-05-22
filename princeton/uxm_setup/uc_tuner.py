@@ -30,15 +30,24 @@ class UCTuner:
     current_tone_power : int
         The SMuRF RF tone power used for `band`.
     estimate_att : int
-        The uc_att setting resulting in the lowest noise thus far.
+        The uc_att setting resulting in the lowest noise in a given uc_tune call.
     lowest_wl_index : int
         Index corresponding to estimate_att from a list of uc_att settings.
     wl_median : float
         Median white noise level in pA/rtHz
     wl_length : int
-        Number of channels used in wl_median determination.
+        Number of channels used in wl_median determination of most recent uc_tune call.
     status : str
         Status string containing wl_median, wl_length, and channel_length.
+    best_wl : float
+        Lowest median white noise found in all this object's uc_tune() calls, [pA/rtHz].
+    best_att : int
+        The uc_att setting that resulted in best_wl's noise. [half dB increments]
+    best_tone : int
+        The tone_power setting that resulted in best_wl's noise. 
+        [3 dB increments, tone power=12 roughly -30 dBm (when synthesis scale=1)]
+    best_length : int
+        The number of channels used in calculating best_wl's noise. []
     """
     def __init__(self, S, cfg, band=None):
         self._S = S
@@ -55,6 +64,7 @@ class UCTuner:
         self.best_wl = None
         self.best_att = None
         self.best_tone = None
+        self.best_length = None
 
         if band is None:
             raise ValueError("Must specify `band` as int [0-7]")
@@ -110,6 +120,7 @@ class UCTuner:
             self.best_wl = wl_median
             self.best_tone = self.current_tone_power
             self.best_att = estimate_att
+            self.best_length = wl_len_list[lowest_wl_index]
         self.wl_length = wl_len_list[lowest_wl_index]
         self.status = (f"WL: {self.wl_median:.1f} pA/rtHz with"
                        + f" {self.wl_length} channels.")
