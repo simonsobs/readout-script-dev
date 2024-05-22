@@ -23,7 +23,7 @@ import scipy.signal as signal
 
 
 
-band = 5
+band = 4
 slot_num = 4
 
 cfg = DetConfig()
@@ -48,7 +48,7 @@ print("band {} dc_att {}".format(band, S.get_att_dc(band)))
 S.set_att_uc(band, cfg.dev.bands[band]["uc_att"])
 print("band {} uc_att {}".format(band, S.get_att_uc(band)))
 
-S.amplitude_scale[band] = cfg.dev.bands[band]["drive"]
+S.amplitude_scale[band] = cfg.dev.bands[band]["tone_power"]
 print("band {} tone power {}".format(band, S.amplitude_scale[band]))
 
 print("estimating phase delay")
@@ -57,10 +57,10 @@ print("setting synthesis scale")
 # hard coding it for the current fw
 S.set_synthesis_scale(band, 1)
 print("running find freq")
-S.find_freq(band, tone_power=cfg.dev.bands[band]["drive"], make_plot=True)
+S.find_freq(band, tone_power=cfg.dev.bands[band]["tone_power"], make_plot=True)
 print("running setup notches")
 S.setup_notches(
-    band, tone_power=cfg.dev.bands[band]["drive"], new_master_assignment=True
+    band, tone_power=cfg.dev.bands[band]["tone_power"], new_master_assignment=True
 )
 print("running serial gradient descent and eta scan")
 S.run_serial_gradient_descent(band)
@@ -326,7 +326,7 @@ if wl_median > 200:
     )
 
 
-if wl_median < 45:
+if wl_median < 30:
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)
     )
@@ -342,7 +342,7 @@ if wl_median < 45:
     print("achieved at uc att {} drive {}".format(estimate_att, current_tune_power))
 
 
-if wl_median > 45 and wl_median < 65:
+if wl_median > 30 and wl_median < 65:
 
     print(
         "WL: {} with {} channels out of {}".format(wl_median, wl_length, channel_length)

@@ -21,8 +21,8 @@ from scipy.interpolate import interp1d
 import argparse
 import time
 import csv
-import sodetlib.smurf_funcs.det_ops as det_op
-import sodetlib.analysis.det_analysis as det_analysis
+#import sodetlib.smurf_funcs.det_ops as det_op
+#import sodetlib.analysis.det_analysis as det_analysis
 
 
 start_time=S.get_timestamp()
@@ -53,8 +53,8 @@ with open(out_fn, 'w', newline = '') as csvfile:
  
 print(f'Taking tickle on bias line all band')
 
-tickle_file = det_op.take_tickle(S, cfg, target_BL, tickle_freq=5, tickle_voltage=0.005,high_current=True)
-det_analysis.analyze_tickle_data(S, tickle_file,normal_thresh=0.002)  
+#tickle_file = det_op.take_tickle(S, cfg, target_BL, tickle_freq=5, tickle_voltage=0.005,high_current=True)
+#det_analysis.analyze_tickle_data(S, tickle_file,normal_thresh=0.002)  
 
 row = {}
 row['bath_temp'] = bath_temp
@@ -62,7 +62,7 @@ row['bias_line'] = str(target_BL)
 row['band'] = 'all'
      
 
-row['data_path'] = tickle_file
+row['data_path'] = 'None'
   
 with open(out_fn, 'a', newline = '') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -77,7 +77,7 @@ for bias_gp in target_BL:
         print(f'Taking IV on bias line {bias_gp}, all band')
           
  
-        iv_data = S.run_iv(bias_groups = [bias_gp], wait_time=0.001, bias_high=bias_high_command, bias_low=bias_low_command, bias_step = bias_step_command, overbias_voltage=18, cool_wait=0, high_current_mode=False, make_plot=False, save_plot=True, cool_voltage = 8)
+        iv_data = S.run_iv(bias_groups = [bias_gp], wait_time=0.001, bias_high=bias_high_command, bias_low=bias_low_command, bias_step = bias_step_command, overbias_voltage=18, cool_wait=0, high_current_mode=False, make_plot=False, save_plot=True)
         dat_file = iv_data[0:-13]+'.npy'     
         row['data_path'] = dat_file
         with open(out_fn, 'a', newline = '') as csvfile:
@@ -89,7 +89,7 @@ for bias_gp in target_BL:
 
 def write_IV_into_dict(IV_csv):
     
-    data_dict = np.genfromtxt(IV_csv, delimiter=",",unpack=True, dtype=None, names=True, encoding=None)
+    data_dict = np.genfromtxt(IV_csv, delimiter=",",unpack=False, dtype=None, names=True, encoding=None)
     psat_array = []
     
     data = []

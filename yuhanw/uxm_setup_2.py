@@ -1,3 +1,13 @@
+'''
+Code written in Oct 2021 by Yuhan Wang
+setup UFM and generate tune file. notice need to get the input power before muxchip correct first
+chosen nperseg to be 2**12 based on the sample rate 200Hz and 20s timestream also script run time
+
+Nov,decided to use 2**16 and diasble warning
+'''
+
+
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -9,12 +19,13 @@ import pickle as pkl
 from scipy import signal
 import os
 import time
-
+import warnings
 from sodetlib.det_config import DetConfig
 
+warnings.filterwarnings("ignore")
 
 bands = [0,1,2,3,4,5,6,7]
-slot_num = 4
+slot_num = 2
 
 cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)
@@ -38,7 +49,7 @@ for band in bands:
 	S.set_att_uc(band,cfg.dev.bands[band]['uc_att'])
 	print('band {} uc_att {}'.format(band,S.get_att_uc(band)))
 
-	S.amplitude_scale[band] = cfg.dev.bands[band]['drive']
+	S.amplitude_scale[band] = cfg.dev.bands[band]['tone_power']
 	print('band {} tone power {}'.format(band,S.amplitude_scale[band] ))
 
 	print('estimating phase delay')
@@ -47,15 +58,15 @@ for band in bands:
 	# hard coding it for the current fw
 	S.set_synthesis_scale(band,1)
 	print('running find freq')
-	S.find_freq(band,tone_power=cfg.dev.bands[band]['drive'],make_plot=True)
+	S.find_freq(band,tone_power=cfg.dev.bands[band]['tone_power'],make_plot=True)
 	print('running setup notches')
-	S.setup_notches(band,tone_power=cfg.dev.bands[band]['drive'],new_master_assignment=True)
+	S.setup_notches(band,tone_power=cfg.dev.bands[band]['tone_power'],new_master_assignment=True)
 	print('running serial gradient descent and eta scan')
 	S.run_serial_gradient_descent(band);
 	S.run_serial_eta_scan(band);
 	print('running tracking setup')
 	S.set_feedback_enable(band,1) 
-	S.tracking_setup(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], make_plot=False, save_plot=False, show_plot=False, channel=S.which_on(band), nsamp=2**18, lms_freq_hz=None, meas_lms_freq=True,feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
+	S.tracking_setup(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], make_plot=False, save_plot=False, show_plot=False, channel=S.which_on(band), nsamp=2**18, lms_freq_hz=cfg.dev.bands[band]['lms_freq_hz'], meas_lms_freq=cfg.dev.bands[band]['meas_lms_freq'],feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
 	
 	# print('checking tracking')
 	# S.check_lock(band,reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],fraction_full_scale=cfg.dev.bands[band]['frac_pp'], lms_freq_hz=None, feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],lms_gain=cfg.dev.bands[band]['lms_gain'])
@@ -97,7 +108,7 @@ for band, channel in zip(bands, channels):
 
 fmin=5
 fmax=50
-
+detrend='constant'
 # plot the band channel data
 fig, axs = plt.subplots(4, 2, figsize=(12, 24), gridspec_kw={'width_ratios': [2, 2]},dpi=50)
 for band in sorted(stream_by_band_by_channel.keys()):
@@ -108,7 +119,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
         stream_single_channel = stream_single_band[channel]
 
 
-        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend)
+        f, Pxx = signal.welch(stream_single_channel, fs=fs, detrend=detrend,nperseg=2**16)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])
@@ -135,7 +146,7 @@ for band in sorted(stream_by_band_by_channel.keys()):
     for channel in sorted(stream_single_band.keys()):
         stream_single_channel = stream_single_band[channel]
         f, Pxx = signal.welch(stream_single_channel,
-                fs=fs, detrend=detrend)
+                fs=fs, detrend=detrend,nperseg=2**16)
         Pxx = np.sqrt(Pxx)
         fmask = (fmin < f) & (f < fmax)
         wl = np.median(Pxx[fmask])

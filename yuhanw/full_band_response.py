@@ -23,7 +23,7 @@ for band in bands:
     resp_dict[band]={}
     resp_dict[band]['fc']=S.get_band_center_mhz(band)
 
-    f,resp=S.full_band_resp(band=band, make_plot=False, show_plot=False, n_scan=n_scan_per_band, timestamp=timestamp, save_data=True)
+    f,resp=S.full_band_resp(band=band, make_plot=False, show_plot=False, n_scan=n_scan_per_band, save_data=True)
     resp_dict[band]['f']=f
     resp_dict[band]['resp']=resp
     
