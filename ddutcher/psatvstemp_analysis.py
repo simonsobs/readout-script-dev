@@ -373,12 +373,12 @@ def do_iv_cuts(d, min_rn, max_rn, psat_level=0.9, min_psat=0, max_psat=np.inf):
 
 def plot_by_bl(data_dict, plot_title="", figsize=None):
     tot = 0
-    ncols = 4 #np.min((len(data_dict.keys()), 4))
-    nrows = 3 #int(np.ceil(len(data_dict.keys()) / 4))
+    ncols = np.min((len(data_dict.keys()), 4))
+    nrows = int(np.ceil(len(data_dict.keys()) / 4))
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
     axes = np.atleast_2d(axes)
     for idx, bl in enumerate(sorted(list(data_dict.keys()))):
-        inds = np.unravel_index(bl, (nrows, ncols))
+        inds = np.unravel_index(idx, (nrows, ncols))
         ax = axes[inds]
         tes_yield = np.sum(
             [len(data_dict[bl][sb].keys()) for sb in data_dict[bl].keys()]
@@ -408,8 +408,8 @@ def plot_by_freq(
 ):
     if array_freq.lower() == "lf":
         freq1, freq2 = "30", "40"
-        bl_freq_map = {bl: freq1 for bl in [0, 3, 5]}
-        bl_freq_map.update({bl: freq2 for bl in [1, 2]})
+        bl_freq_map = {bl: freq1 for bl in [0, 3, 5, 10, 11]}
+        bl_freq_map.update({bl: freq2 for bl in [1, 2, 8, 9]})
     else:
         if array_freq.lower() == "uhf":
             freq1, freq2 = "220", "280"
@@ -653,7 +653,7 @@ def plot_params(
             "label": "%sGHz: %.1f $\pm$ %.1f",
         },
         "R_n" : {
-            "range" : (4e-3, 10e-3),
+            "range" : (4e-3, 12e-3),
         }
     }
     if param_plot_kw is not None:
@@ -681,12 +681,15 @@ def plot_params(
     else:
         freq1, freq2 = "30", "40"
         freq1_psat = [0.62, 1.04]
-        freq2_psat = [2.66, 4.42]
+        if "UFM-Ln" in plot_title:
+            freq2_psat = [1.5, 2.5]
+        else:
+            freq2_psat = [2.66, 4.42]
 
     if assem_type.lower() == "ufm":
         if array_freq.lower() == "lf":
-            bl_freq_map = {bl: freq1 for bl in [0, 3, 5]}
-            bl_freq_map.update({bl: freq2 for bl in [1, 2]})
+            bl_freq_map = {bl: freq1 for bl in [0, 3, 5, 10, 11]}
+            bl_freq_map.update({bl: freq2 for bl in [1, 2, 8, 9]})
         else:
             bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
             bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})

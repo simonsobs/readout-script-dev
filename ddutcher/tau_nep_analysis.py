@@ -189,7 +189,9 @@ def plot_transition_hist(
         xlabel = "NEP (aW/rtHz)"
         title = f"{plot_title} NEP at 50% Rn"
     else:
-        raise ValueError("`key` must be one of ['tau','nep']")
+        title = plot_title
+        label = "{med:.0f}"
+        xlabel = key
 
     if plot_by_bl:
         fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(9, 10))
@@ -210,13 +212,16 @@ def plot_transition_hist(
     else:
         fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(9,5))
         if array_freq.lower() == "lf":
-            raise NotImplementedError
-        freq1_bg = [0, 1, 4, 5, 8, 9]
-        freq2_bg = [2, 3, 6, 7, 10, 11]
-        if array_freq.lower() == "uhf":
-            freq1, freq2 = "220", "280"
+            freq1, freq2 = "30", "40"
+            freq1_bg = [0, 3, 5, 10, 11]
+            freq2_bg = [1, 2, 8, 9]
         else:
-            freq1, freq2 = "90", "150"
+            freq1_bg = [0, 1, 4, 5, 8, 9]
+            freq2_bg = [2, 3, 6, 7, 10, 11]
+            if array_freq.lower() == "uhf":
+                freq1, freq2 = "220", "280"
+            else:
+                freq1, freq2 = "90", "150"
         freq1_opt, freq1_dark = [], []
         freq2_opt, freq2_dark = [], []
         for bg in target_bg:
