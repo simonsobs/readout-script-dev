@@ -88,9 +88,6 @@ def analyze_vna(
         print(f"WARNING: More than 924 resonances found: {len(peak_inds)}.")
 
     if plot_peaks:
-#         plot_vna_peaks(
-#             freq, resp, peak_inds, suptitle=label, output_dir=output_dir,
-#         )
         plot_vna_muxband_peaks(
             freq, s21_db, peak_inds, suptitle=label, output_dir=output_dir,
         )
@@ -423,17 +420,7 @@ def fit_vna_resonances(
     left and right bounds of the peak.
     """
 
-    dres = {
-        "resonator_index": [],
-        "f0": [],
-        "Qi": [],
-        "Qc": [],
-        "Q": [],
-        "br": [],
-        "depth": [],
-    }
-    dfres = pd.DataFrame(dres)
-
+    dres = []
     for k, ind in enumerate(peak_inds):
         fs = freq[ind]
         if len(low_indice) == 0:
@@ -454,22 +441,13 @@ def fit_vna_resonances(
             br = get_br(result.best_values["Q"], result.best_values["f_0"]) / 1.0e6
             res_index = k
             depth = get_dip_depth(result.best_fit)
-            dfres = dfres.append(
-                {
-                    "resonator_index": int(res_index),
-                    "f0": f0,
-                    "Qi": Qi,
-                    "Qc": Qc,
-                    "Q": Q,
-                    "br": br,
-                    "depth": depth,
-                },
-                ignore_index=True,
-            )
+            dres.append([int(res_index), f0, Qi, Qc, Q, br, depth])
             k = k + 1
         except Exception as error:
             print(error)
             pass
+    dfres = pd.DataFrame(
+        dres, columns = ['resonator_index','f0','Qi','Qc','Q','br','depth'])
     return dfres
 
 
