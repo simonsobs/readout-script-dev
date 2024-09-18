@@ -55,13 +55,15 @@ def filter_func(filters):
             data = np.loadtxt(os.path.join(filter_dir, f'{filt_id}.txt'), delimiter=',')
         filter_data += [data]
 
-    # Add a loop here to determine which data set has more restricted range?
-
     filter_func = interp1d(1e2 * cnst.c * (filter_data[0])[:,0], (filter_data[0])[:,1])
+    if len(filter_data) == 1:
+        return filter_func
+
     for filt in range(1, len(filter_data)):
+        m = filter_data[filt][:,0] < np.max(filter_data[0][:,0])
         filter_func= interp1d(
-            1e2 * cnst.c * (filter_data[0])[:,0],
-            (filter_data[filt])[:,1] * filter_func(1e2 * cnst.c * (filter_data[filt])[:,0])
+            1e2 * cnst.c * (filter_data[filt])[:,0][m],
+            (filter_data[filt])[:,1][m] * filter_func(1e2 * cnst.c * (filter_data[filt])[:,0][m])
         )
 
     return filter_func
