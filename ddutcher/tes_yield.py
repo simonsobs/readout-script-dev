@@ -22,7 +22,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def tickle_and_iv(
-        S, target_bg, overbias_voltage, bias_high, bias_low, bias_step,
+        S, target_bg, overbias_voltage, bias_high, bias_low, bias_step, wait_time,
         bath_temp, start_time, current_mode, make_bgmap,
 ):
     target_bg = np.array(target_bg)
@@ -62,7 +62,7 @@ def tickle_and_iv(
 
         iv_data = det_ops.take_iv(
             S, cfg,
-            bias_groups = [bg], wait_time=0.01, bias_high=bias_high,
+            bias_groups = [bg], wait_time=wait_time, bias_high=bias_high,
             bias_low=bias_low, bias_step=bias_step,
             overbias_voltage=overbias_voltage, cool_wait=cool_wait,
             high_current_mode=high_current_mode,
@@ -260,12 +260,14 @@ def tes_yield(S, target_bg, out_fn, start_time):
 
 
 def run(S, cfg, target_bg, overbias_voltage=15,bias_high=19.9, bias_low=0,
-        bias_step=0.025, bath_temp=100,current_mode='low', make_bgmap=False):
+        bias_step=0.025, wait_time=0.01, bath_temp=100, current_mode='low',
+        make_bgmap=False,
+       ):
     start_time = S.get_timestamp()
 
     out_fn = tickle_and_iv(
-        S, target_bg, overbias_voltage, bias_high, bias_low, bias_step, bath_temp,
-        start_time, current_mode, make_bgmap)
+        S, target_bg, overbias_voltage, bias_high, bias_low, bias_step, wait_time,
+        bath_temp, start_time, current_mode, make_bgmap)
     target_vbias = tes_yield(S, target_bg, out_fn, start_time)
     logger.info(f'Saving data to {out_fn}')
     return target_vbias
@@ -282,6 +284,7 @@ if __name__ == "__main__":
     parser.add_argument('--bias-high', type=float, default=19)
     parser.add_argument('--bias-low', type=float, default=0)
     parser.add_argument('--bias-step', type=float, default=0.025)
+    parser.add_argument('--wait-time', type=float, default=0.01)
     parser.add_argument('--current-mode', type=str, default='low')
     parser.add_argument('--make-bgmap', default=False, action='store_true')
     parser.add_argument(
@@ -314,4 +317,5 @@ if __name__ == "__main__":
     run(S, cfg, target_bg=bgs, bias_high=args.bias_high, bias_low=args.bias_low,
         bias_step=args.bias_step, bath_temp=args.temp, current_mode=args.current_mode,
         make_bgmap=args.make_bgmap, overbias_voltage=args.overbias_voltage,
+        wait_time=args.wait_time
     )

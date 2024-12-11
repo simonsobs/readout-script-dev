@@ -12,7 +12,7 @@ from scipy.interpolate import interp1d
 from scipy.integrate import quad
 from scipy.optimize import curve_fit
 
-filter_dir = "/home/kaiwenz/opt_eff_packaged/filters/"
+filter_dir = "/home/ddutcher/data/filters/"
 
 
 def filter_func(filters):
@@ -43,7 +43,7 @@ def filter_func(filters):
         elif filters.lower() == 'uhf':
             filters = ['K2938','K2805']
         elif filters.lower() == 'lf':
-            raise NotImplemented("LF LPE filters not yet implemented")
+            filters = ['FARC3226','FP3276']
     elif not isinstance(filters, list):
         raise TypeError("`filters` must either be str or list of str")
 
@@ -53,17 +53,22 @@ def filter_func(filters):
             data = np.loadtxt(os.path.join(filter_dir, f'{filt_id}.txt'))
         except ValueError:
             data = np.loadtxt(os.path.join(filter_dir, f'{filt_id}.txt'), delimiter=',')
+        # Convert frequency column data to be in Hz
+        if filt_id in ['FARC3226','FP3276']:
+            data[:,0] *= 1e9
+        else:
+            data[:,0] *= 1e2 * cnst.c
         filter_data += [data]
 
-    filter_func = interp1d(1e2 * cnst.c * (filter_data[0])[:,0], (filter_data[0])[:,1])
+    filter_func = interp1d((filter_data[0])[:,0], (filter_data[0])[:,1])
     if len(filter_data) == 1:
         return filter_func
 
     for filt in range(1, len(filter_data)):
         m = filter_data[filt][:,0] < np.max(filter_data[0][:,0])
         filter_func= interp1d(
-            1e2 * cnst.c * (filter_data[filt])[:,0][m],
-            (filter_data[filt])[:,1][m] * filter_func(1e2 * cnst.c * (filter_data[filt])[:,0][m])
+            (filter_data[filt])[:,0][m],
+            (filter_data[filt])[:,1][m] * filter_func((filter_data[filt])[:,0][m])
         )
 
     return filter_func
@@ -76,6 +81,8 @@ def bandpass_funcs(array_freq):
     array_freq : {'lf', 'mf', or 'uhf'}
         
     """
+    if array_freq.lower() == "lf":
+        array_freq = "NIST_LF"
     freq1 = np.loadtxt(os.path.join(filter_dir, f"{array_freq.upper()}_1_peak.txt"))
     freq2 = np.loadtxt(os.path.join(filter_dir, f"{array_freq.upper()}_2_peak.txt"))
     
@@ -96,15 +103,19 @@ def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
             raise ValueError(
                 "Must specify `used_temps` for older version CL datafile.")
 
-    if array_freq.lower() == 'mf':
-        freq1, freq2 = '90','150'
-    elif array_freq.lower() == 'uhf':
-        freq1, freq2 = '220','280'
-    elif array_freq.lower() == 'lf':
-        raise NotImplemented("Sorry, I don't support LF at this time.")
-        freq1, freq2 = '30','40'
-    else:
+    if array_freq.lower() not in ['lf','mf','uhf']:
         raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")
+    if array_freq.lower() == "lf":
+        freq1, freq2 = "30", "40"
+        bl_freq_map = {bl: freq1 for bl in [10,11]}#[0, 3, 5, 10, 11]}
+        bl_freq_map.update({bl: freq2 for bl in [8,9]})#[1, 2, 8, 9]})
+    else:
+        if array_freq.lower() == "uhf":
+            freq1, freq2 = "220", "280"
+        else:
+            freq1, freq2 = "90", "150"
+        bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
+        bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
 
     avg_dark_deltaPsat = {freq1:[[] for temp in used_temps],
                           freq2:[[] for temp in used_temps]
@@ -113,10 +124,7 @@ def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
     for bg in cl_data['data'].keys():
         if bg in cl_data['metadata']['optical_bl']:
             continue
-        if bg in [0,1,4,5,8,9]:
-            freq=freq1
-        else:
-            freq=freq2
+        freq = bl_freq_map[bg]
         for sb in cl_data['data'][bg].keys():
             for ch, d in cl_data['data'][bg][sb].items():
                 if len(d['temp']) < 2:
@@ -135,8 +143,9 @@ def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
     return avg_dark_deltaPsat
 
 
-def compute_opteff(cl_data, do_dark_correction=True, used_temps=None,
-                   array_freq='mf', filters=None):
+def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
+                   do_dark_correction=True, dark_correction=None,
+                  ):
 
     if isinstance(cl_data, str):
         cl_data = np.load(cl_data,allow_pickle=True).item()
@@ -150,18 +159,25 @@ def compute_opteff(cl_data, do_dark_correction=True, used_temps=None,
     if array_freq.lower() == 'mf':
         freq1, freq2 = '90','150'
         lower_f,upper_f = 62e9, 199e9
+        bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
+        bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
     elif array_freq.lower() == 'uhf':
         freq1, freq2 = '220','280'
         lower_f, upper_f = 180e9, 329e9
+        bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
+        bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
     elif array_freq.lower() == 'lf':
-        raise NotImplemented("Sorry, I don't support LF at this time.")
         freq1, freq2 = '30','40'
+        lower_f, upper_f = 20e9, 60e9
+        bl_freq_map = {bl: freq1 for bl in [10,11]}#[0, 3, 5, 10, 11]}
+        bl_freq_map.update({bl: freq2 for bl in [8,9]})#[1, 2, 8, 9]})
     else:
         raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")
 
     if do_dark_correction:
-        dark_correction = compute_dark_correction(
-            cl_data, used_temps=used_temps, array_freq=array_freq)        
+        if dark_correction is None:
+            dark_correction = compute_dark_correction(
+                cl_data, used_temps=used_temps, array_freq=array_freq)
 
     if filters is None:
         filters = array_freq
@@ -195,11 +211,10 @@ def compute_opteff(cl_data, do_dark_correction=True, used_temps=None,
             coupling = 'optical'
         else:
             coupling = 'dark'
-        if bg in [0,1,4,5,8,9]:
-            freq=freq1
+        freq = bl_freq_map[bg]
+        if freq==freq1:
             fit_func = freq1_fit
         else:
-            freq=freq2
             fit_func = freq2_fit
 
         for sb in cl_data['data'][bg].keys():
@@ -236,11 +251,16 @@ def plot_opteff(eta_dict, ufm='', array_freq='mf', return_plots=False):
     """
     if array_freq.lower() == 'mf':
         freq1, freq2 = '90','150'
+        bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
+        bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
     elif array_freq.lower() == 'uhf':
         freq1, freq2 = '220','280'
+        bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
+        bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
     elif array_freq.lower() == 'lf':
-        raise NotImplemented("Sorry, I don't support LF at this time.")
         freq1, freq2 = '30','40'
+        bl_freq_map = {bl: freq1 for bl in [10,11]}#[0, 3, 5, 10, 11]}
+        bl_freq_map.update({bl: freq2 for bl in [8,9]})#[1, 2, 8, 9]})
     else:
         raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")
 
@@ -254,10 +274,8 @@ def plot_opteff(eta_dict, ufm='', array_freq='mf', return_plots=False):
             coupling = 'optical'
         else:
             coupling = 'dark'
-        if bg in [0,1,4,5,8,9]:
-            freq=freq1
-        else:
-            freq=freq2
+        freq = bl_freq_map[bg]
+
         for sb in eta_dict['data'][bg].keys():
             eta[coupling][freq] += list(eta_dict['data'][bg][sb].values())
 

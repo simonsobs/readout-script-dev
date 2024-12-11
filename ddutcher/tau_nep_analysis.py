@@ -3,7 +3,8 @@ import os
 import matplotlib.pyplot as plt
 
 
-def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11]):
+def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11],
+                     start_index=0):
     nrows, ncols = 3, 4
     metadata = np.genfromtxt(metadata_fp, delimiter=",",unpack=False,
                              dtype=None, names=True, encoding=None)
@@ -11,6 +12,8 @@ def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11]):
         ["bias_step_analysis" in line['data_path'] for line in metadata]]
     noise_lines = metadata[
         ["take_noise" in line['data_path'] for line in metadata]]
+    noise_lines = noise_lines[start_index:]
+    biasstep_lines = biasstep_lines[start_index:]
 
     # We'll need some info from the bias step file
     bsa_fp = biasstep_lines[0]['data_path']
@@ -24,18 +27,17 @@ def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11]):
 
     # Channels might not be the same in bgmap and in noise/biassteps:
     # make a channel mask.
-    
     bgmap_bandchan = list(zip(bg_map['bands'], bg_map['channels']))
     bias_bandchan = list(zip(bsa['bands'], bsa['channels']))
-    if len(bgmap_bandchan) > len(bias_bandchan):
-        bg_mask = [(b,c) in bias_bandchan for (b,c) in bgmap_bandchan]
-        bs_mask = np.ones(len(bias_bandchan), dtype=bool)
-    elif len(bgmap_bandchan) < len(bias_bandchan):
-        bs_mask = [(b,c) in bgmap_bandchan for (b,c) in bias_bandchan]
+    if bgmap_bandchan == bias_bandchan:
         bg_mask = np.ones(len(bgmap_bandchan), dtype=bool)
-    else:
-        bg_mask= np.ones(len(bgmap_bandchan), dtype=bool)
         bs_mask = bg_mask
+    else:
+        bg_mask = [(b,c) in bias_bandchan for (b,c) in bgmap_bandchan]
+        bs_mask = [(b,c) in bgmap_bandchan for (b,c) in bias_bandchan]
+    assert(
+        (np.array(bgmap_bandchan)[bg_mask] == np.array(bias_bandchan)[bs_mask]).all()
+    )
 
     num_chans = np.min((sum(bg_mask), sum(bs_mask)))
     num_biases = len(biasstep_lines['bias_v'])
@@ -55,6 +57,9 @@ def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11]):
             bsa_fp = bsa_fp.replace('/data/','/data2/')
         biasstep = np.load(bsa_fp, allow_pickle=True).item()
 
+        if len(biasstep['channels']) != len(bs_mask):
+            break
+
         for k in ['tau_eff', 'Si', 'R0', 'Pj']:
             all_data[k][ind,:] = biasstep[k][bs_mask]
         tau_std = np.zeros(len(biasstep['step_fit_pcovs']))
@@ -69,6 +74,8 @@ def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11]):
         noise = np.load(noise_fp, allow_pickle=True).item()
         if 'noisedict' in noise.keys():
             noise = noise['noisedict']
+        if len(noise['channels']) != len(bs_mask):
+            break
         all_data['wl'][ind, :] = noise['noise_pars'][:,0][bs_mask]
 
     """I forget why I reformatted the data like this,
@@ -143,7 +150,7 @@ def compute_transition_values(results_dict):
                 m[start:stop] = True
                 m[d['tau']<0.25] = False
                 m[(d['tau_std']/d['tau']) > 0.1] = False
-                m[d['nep'] > 1e3] = False
+#                m[d['nep'] > 1e3] = False
                 try:
                     ind = np.nanargmin(np.abs(d['rfrac'][m] - 0.5))
                 except ValueError:
