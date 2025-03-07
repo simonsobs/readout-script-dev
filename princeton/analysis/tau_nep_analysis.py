@@ -7,9 +7,7 @@ sys.path.append('/home/rsonka/repos/readout-script-dev/rsonka')
 import python_utilities as pu
 
 
-
-
-def get_tau_nep_data_diff_channels(metadata_fp, bgmap_fp=None,nrows=3,ncols=4,return_dax=False):
+def get_tau_nep_data(metadata_fp, bgmap_fp=None,nrows=3,ncols=4,return_dax=False):
     metadata = np.genfromtxt(metadata_fp, delimiter=",",unpack=False,
                              dtype=None, names=True, encoding=None) 
     # names=True takes first row, puts it in dtypes
@@ -53,7 +51,7 @@ def get_tau_nep_data_diff_channels(metadata_fp, bgmap_fp=None,nrows=3,ncols=4,re
               'bands':np.full((tot_points,),-42,dtype=int),
               'channels':np.full((tot_points,),-42,dtype=int),
               'sb_ch':np.full((tot_points,),-42,dtype=int)}
-    for key in ['v_bias', 'wl','tau_eff', 'Si', 'R0', 'Pj']:
+    for key in ['v_bias', 'wl','tau_eff', 'Si', 'R0', 'Pj','tau_std']:
         b_d_ax[key] = np.full((tot_points,),np.nan,dtype=float)
     b_d_ax['bsa'] = np.full((tot_points,),'?',dtype=object)
     
@@ -67,6 +65,8 @@ def get_tau_nep_data_diff_channels(metadata_fp, bgmap_fp=None,nrows=3,ncols=4,re
         b_d_ax['v_bias'][i:i+n_ind] = biasstep_lines['bias_v'][ind]
         for key in ['bands','channels','tau_eff', 'Si', 'R0', 'Pj']:
             b_d_ax[key][i:i+n_ind] = bsa[key][masks[ind]]
+        for j in range(n_ind):
+            b_d_ax['tau_std'][i+j] = np.sqrt(np.diag(bsa['step_fit_pcovs'][j]))[1]
         b_d_ax['sb_ch'][i:i+n_ind] = 1000*b_d_ax['bands'][i:i+n_ind]+b_d_ax['channels'][i:i+n_ind]
         # noise:
         noise_fp = noise_lines[ind][-2]
@@ -98,7 +98,7 @@ def get_tau_nep_data_diff_channels(metadata_fp, bgmap_fp=None,nrows=3,ncols=4,re
         idxs = pu.dax.find_idx_matches(b_d_ax,[('bands','=',sb),
                                                ('channels','=',ch)])  
         b_d_ax['bl'][idxs] = bl
-        for key in ['v_bias','tau_eff', 'Si',  'wl', 'Pj']:
+        for key in ['v_bias','tau_eff', 'Si',  'wl', 'Pj', 'tau_std']:
             d[key] = b_d_ax[key][idxs]
         d['R0'] = abs(b_d_ax['R0'][idxs])
         d['rfrac'] = d['R0'] / np.nanmean(d['R0'][:2]) # Problematic if bad point in first two
@@ -106,6 +106,7 @@ def get_tau_nep_data_diff_channels(metadata_fp, bgmap_fp=None,nrows=3,ncols=4,re
         d['r_tes'] = d.pop('R0') * 1e3
         d['s_i'] = d.pop('Si')
         d['tau'] = d.pop('tau_eff') * 1e3
+        d['tau_std'] = d.pop('tau_std') * 1e3
         d['nei'] = d.pop('wl')
         d['p_tes'] = d.pop('Pj') * 1e12
     
@@ -114,16 +115,115 @@ def get_tau_nep_data_diff_channels(metadata_fp, bgmap_fp=None,nrows=3,ncols=4,re
     else:
         return results_dict # backwards compatibility
     
-def in_transition_mask(d):
-    m = np.where(
-        (d['r_tes'] > 1e-1) &
-        (d['rfrac'] < 0.8) &
-        (np.diff(d['rfrac'], append=0) < 0)
-    )[0]
-    return m
+def in_transition_mask(d,old=True,tau_cut=False,nep_cut=False,confirm_r50=True):
+    # Old version:
+    if old:
+        m = np.where(
+            (d['r_tes'] > 1e-1) &
+            (d['rfrac'] < 0.8) &
+            (np.diff(d['rfrac'],append=0) < 0)
+        )[0]
+    else:
+        m = np.zeros(len(d['rfrac']), dtype=bool)
+        try:
+            stop = np.where(d['rfrac'] < 0.2)[0][0]
+            start_inds = np.where(d['rfrac'] > 0.8)[0]
+            # want last start_ind < stop ind
+            start = start_inds[start_inds < stop][-1]
+        except IndexError:
+            return np.array([]),np.nan # tells for loop to continue
+        m[start:stop] = True 
+        if tau_cut:
+            m[d['tau']<0.25] = False
+            m[(d['tau_std']/d['tau']) > 0.1] = False
+        if nep_cut:
+            m[d['nep'] > 1e3] = False
+    if confirm_r50:
+        try:
+            r50_idx = np.nanargmin(np.abs(d['rfrac'][m] - 0.5))
+        except ValueError:
+            return np.array([]),np.nan # tells for loop to continue
+        if np.abs(d['rfrac'][m][r50_idx] - 0.5) > 0.1:
+            return np.array([]),np.nan # tells for loop to continue
+        return m,r50_idx
+    return m,np.nan
+
+def compute_transition_values(results_dict):
+    """
+    Compute the per-bias line values at 50% Rn for tau and NEP.
+    """
+    transition_values = {
+        'bands':[],
+        'channels':[],
+        'bgmap':[],
+        'tau':[],
+        'nep':[],
+    }
+    if 'data' in results_dict.keys():
+        results_dict = results_dict['data']
+    for ind, bg in enumerate(sorted(list(results_dict.keys()))):
+        for sb in results_dict[bg].keys():
+            for ch, d in results_dict[bg][sb].items():
+                m,r50_idx = in_transition_mask(d,tau_cut=True, nep_cut=True)
+                if len(m) == 0:
+                    continue
+                transition_values['bands']+=[sb]
+                transition_values['channels']+=[ch]
+                transition_values['bgmap']+=[bg]
+                transition_values['tau']+=[d['tau'][m][r50_idx]]
+                transition_values['nep']+=[d['nep'][m][r50_idx]]
+
+    for k, val in transition_values.items():
+        transition_values[k] = np.asarray(val)
+
+    return transition_values
+
+def plot_transition_hist(
+    transition_values, key, target_bg=range(12),
+    nrows=3, ncols=4, xrange=None, bins=None, plot_title='',
+    return_plot=False,
+):
+    if key.lower() == "tau":
+        if xrange is None:
+            xrange = (0, 5)
+        if bins is None:
+            bins = 20
+        label = "{med:.2f} ms"
+        xlabel = "tau_eff (ms)"
+        title = f"{plot_title} Tau at 50% Rn"
+    elif key.lower() == 'nep':
+        if xrange is None:
+            xrange = (0, 100)
+        if bins is None:
+            bins = 20
+        label = "{med:.0f} aW/rtHz"
+        xlabel = "NEP (aW/rtHz)"
+        title = f"{plot_title} NEP at 50% Rn"
+    else:
+        raise ValueError("`key` must be one of ['tau','nep']")
+
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(9, 10))
+    for ind, bg in enumerate(target_bg):
+        inds = np.unravel_index(bg, (nrows, ncols))
+        ax = axes[inds]
+        to_plot = transition_values[key][transition_values['bgmap'] == bg]
+        ax.hist(to_plot, range=xrange, bins=bins)
+        med = np.nanmedian(to_plot)
+        ax.axvline(med, linestyle='--', color='k', label=label.format(med=med))
+        ax.legend(fontsize='small', loc='upper right')
+        ax.set_title(f'BL {bg}')
+    fig.supxlabel(xlabel)
+    fig.suptitle(title, fontsize=16)
+    fig.supylabel("Count")
+    fig.tight_layout()
+
+    if return_plot:
+        return fig, axes
     
-def plot_tau_nep_data(results_dict, x, y, nrows=3, ncols=4,
-                 figsize='default', plot_title='', **plot_kwargs):
+def plot_tau_nep_data(results_dict, x, y, nrows=3, ncols=4, figsize='default',
+                  plot_title='', return_plot=False, old=True, **plot_kwargs):
+    if 'data' in results_dict.keys():
+        results_dict = results_dict['data']
     if figsize=='default':
         figsize = (9/4*ncols, 10/3*nrows)
     options = ['tau','s_i','r_tes','rfrac', 'nep','v_bias', 'nei', 'p_tes']
@@ -139,9 +239,11 @@ def plot_tau_nep_data(results_dict, x, y, nrows=3, ncols=4,
         for sb in results_dict[bg].keys():
             for ch, d in results_dict[bg][sb].items():
                 if x=='rfrac' or y=='rfrac':
-                    m = in_transition_mask(d) # didn't originally have this as function, 
-                else: #but saw you made it more complicated. And in several plotting functions.
-                    m=np.ones(len(d[x]), dtype=bool)
+                    m,_ = in_transition_mask(d, confirm_r50=False, old=old,
+                            tau_cut=(('tau'==x) or ('tau'==y)),
+                            nep_cut=('ne' in y))
+                if len(m) == 0:
+                    continue
                 if 'ne' in y:
                     ax.semilogy(d[x][m], d[y][m], alpha=0.2)
                 else:
@@ -155,9 +257,12 @@ def plot_tau_nep_data(results_dict, x, y, nrows=3, ncols=4,
     fig.supxlabel(x, fontsize=20)
     plt.suptitle(f'{plot_title} {y} vs {x}', fontsize=16)
     plt.tight_layout()
+    if return_plot:
+        return fig, axes
     
-
 def plot_tau_hist(results_dict, nrows=3, ncols=4, xrange=(0,10), xlim=(0,10),plot_title=''):
+    if 'data' in results_dict.keys():
+        results_dict = results_dict['data']
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(9/4*ncols, 10/3*nrows))
     for ind, bg in enumerate(sorted(list(results_dict.keys()))):
         inds = np.unravel_index(bg, (nrows, ncols))
@@ -168,14 +273,10 @@ def plot_tau_hist(results_dict, nrows=3, ncols=4, xrange=(0,10), xlim=(0,10),plo
         tau_list = []
         for sb in results_dict[bg].keys():
             for ch, d in results_dict[bg][sb].items():
-                m = in_transition_mask(d)
-                try: 
-                    ind = np.nanargmin(np.abs(d['rfrac'][m] - 0.5))
-                except ValueError:
+                m,r50_idx = in_transition_mask(d)
+                if len(m) == 0:
                     continue
-                if np.abs(d['rfrac'][m][ind] - 0.5) > 0.1:
-                    continue
-                tau_list.append(d['tau'][m][ind])
+                tau_list.append(d['tau'][m][r50_idx])
         ax.hist(tau_list, range=xrange, bins=20)
         med = np.nanmedian(tau_list)
         ax.axvline(med, linestyle='--', color='k', label=f'{med:.3} ms')
@@ -188,10 +289,11 @@ def plot_tau_hist(results_dict, nrows=3, ncols=4, xrange=(0,10), xlim=(0,10),plo
     plt.tight_layout()
     
 def plot_nep_hist(results_dict, nrows=3, ncols=4, plot_title=''):
+    if 'data' in results_dict.keys():
+        results_dict = results_dict['data']
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(9/4*ncols, 10/3*nrows))
     for ind, bg in enumerate(sorted(list(results_dict.keys()))):
         inds = np.unravel_index(bg, (nrows, ncols))
-        print(inds)
         if nrows==1:
             ax = axes[inds[1]]
         else:
@@ -199,18 +301,10 @@ def plot_nep_hist(results_dict, nrows=3, ncols=4, plot_title=''):
         nep_list = []
         for sb in results_dict[bg].keys():
             for ch, d in results_dict[bg][sb].items():
-                m = np.where(
-                    (d['r_tes'] > 1e-1) &
-                    (d['rfrac'] < 0.8) &
-                    (np.diff(d['rfrac'],append=0) < 0)
-                )[0]
-                try:
-                    ind = np.nanargmin(np.abs(d['rfrac'][m] - 0.5))
-                except ValueError:
+                m,r50_idx = in_transition_mask(d)
+                if len(m) == 0:
                     continue
-                if np.abs(d['rfrac'][m][ind] - 0.5) > 0.1:
-                    continue
-                nep_list.append(d['nep'][m][ind])
+                nep_list.append(d['nep'][m][r50_idx])
         ax.hist(nep_list, bins=20, range=(0,100))
         med = np.nanmedian(nep_list)
         try:
@@ -221,11 +315,13 @@ def plot_nep_hist(results_dict, nrows=3, ncols=4, plot_title=''):
         ax.grid(which='both', linestyle='--', alpha=0.5)
         ax.legend(fontsize='small', loc='upper right')
     fig.supylabel('Count', fontsize=20)
-    fig.supxlabel('tau_eff [ms]', fontsize=20)
+    fig.supxlabel('NEP [aW/rtHz]', fontsize=20)
     plt.suptitle(f'{plot_title} NEP at 50%Rn', fontsize=16)
     plt.tight_layout()
     
 def plot_ptes_hist(results_dict, nrows=3, ncols=4, plot_title=''):
+    if 'data' in results_dict.keys():
+        results_dict = results_dict['data']
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(9/4*ncols, 10/3*nrows))
     for ind, bg in enumerate(sorted(list(results_dict.keys()))):
         inds = np.unravel_index(bg, (nrows, ncols))
@@ -236,14 +332,10 @@ def plot_ptes_hist(results_dict, nrows=3, ncols=4, plot_title=''):
         ptes_list = []
         for sb in results_dict[bg].keys():
             for ch, d in results_dict[bg][sb].items():
-                m = in_transition_mask(d)
-                try: 
-                    ind = np.nanargmin(np.abs(d['rfrac'][m] - 0.5))
-                except ValueError:
+                m,r50_idx = in_transition_mask(d)
+                if len(m) == 0:
                     continue
-                if np.abs(d['rfrac'][m][ind] - 0.5) > 0.1:
-                    continue
-                ptes_list.append(d['p_tes'][m][ind])
+                ptes_list.append(d['p_tes'][m][r50_idx])
         ax.hist(ptes_list, range=(0,50),bins=25)
         med = np.nanmedian(ptes_list)
         ax.axvline(med, linestyle='--', color='k', label=f'{med:0.1f} pW')

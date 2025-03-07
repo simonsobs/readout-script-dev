@@ -1,3 +1,11 @@
+""" Rita F. Sonka
+This file contains relatively simple utility functions that 
+
+
+phc(length,fill_char,message) #Print Heading Comment
+"""
+
+
 # Import the auxilliary utility files. Directly, because I don't want multiple .'s to calll
 #from numpyPlotting import *
 #from prettyPrintTable import *
@@ -12,12 +20,31 @@ import math
 def make_filesafe(filename):
     return filename.replace(" ", "_").replace(".", ",").replace(",,\\", "..\\").replace(",,//","..//").replace("(","").replace(")","")  
 
+# ================ Mutable default arguments are weird.
+
+def anmd(*args): # assign_nonMutable_defaults
+    loa = [arg for arg in args]
+    nonmutable_defaults = {"{}":{},"[]":[]}
+    for i in range(len(loa)):
+        try:
+            loa[i]=nonmutable_defaults[loa[i]]
+        except Exception: #(TypeError, KeyError):
+            pass
+    if len(loa)==1:
+        return loa[0]
+    return loa
+
+
 # ================ DEALING WITH STRING - NUMBER/BOOL CONVERSION (and vice versa)
 def is_float(num_string):
     try:
         float(num_string)
-        #if float(False) == 0, give that a special exception
-        if type(num_string) == bool:
+        #float(False) == 0, give that a special exception
+#         if type(num_string) == bool:
+#             return False
+        # handling numpy.bool_
+        #this is the better way, but taking str() of things takes time....
+        if str(num_string) == "True" or str(num_string) == "False":
             return False
         if float(num_string) == 0:
             return True
@@ -26,7 +53,7 @@ def is_float(num_string):
             return True
         else:
             return False
-    except: # ValueError
+    except (TypeError,ValueError) as e: # ValueError (originally just "except:" which caused problems on later editing!
         return False
 
 def try_to_numerical(num_string):
@@ -37,7 +64,7 @@ def try_to_numerical(num_string):
     return float(num_string)
     
 
-def round_to_sf(x, sf):
+def round_to_sf(x, sf): 
     # Sig Figs
     if not is_float(x):
         return x
@@ -47,7 +74,7 @@ def round_to_sf(x, sf):
         return round(x, -int(math.floor(math.log10(abs(x)))) + (sf - 1))
 
     
-def round_to_sf_str(x, sf,sci_at=4):
+def round_to_sf_str(x, sf,sci_at=4): # **TODO**: compare pretty_print_table's roundToString(num, rTo) someday
     '''A string of x rounded to sf sig figs that actually DISPLAYS any 
     significant 0s at the end, and abides other conventions.
     Uses at most (sci_at-1) non-significant 0s (other than the 0.)
@@ -55,9 +82,9 @@ def round_to_sf_str(x, sf,sci_at=4):
     add ability to make it use a certain exponent if possible, by putting
     some extra sci_notation digits before/after period.'''
     n = sf
-    x = round_to_sf(x,sf)
     if not is_float(x):
         return x
+    x = round_to_sf(x,sf)
     if x == 0: # I think this is right?
         return "0." + "0"*(n)
     # highest digit: 3 for 1000, 0 for 1, -1 for 0.1, etc.
@@ -91,16 +118,34 @@ def round_to_sf_str(x, sf,sci_at=4):
     return f"{sign}{digits[:pwr+1]}.{digits[pwr+1:]}"
 
 
-
-
 #2345678901234567890123456789012345678901234567890123456789012345678901234567890
 # ===================================== META ===================================
 
-def ls_index(string,substring):
+''' ================ TODO post-thesis Auto_Docstring.ipynb !!! ==============='''
+
+
+def phc(length,fill_char,message):
+    """Prints a 1-line Heading Comment of <length> characters (including the #)
+       of entirely <fill_char> except for <message> in the middle,+ surrounding 
+       & starting spaces."""
+    assert len(message) < length-2, f"ERR: {length}<'{message}'"
+    f_size = (length-2-len(message)-2)-2
+    flank = fill_char*int(f_size/2)
+    f1, f2 = [flank, flank + (1+(f_size %2))*fill_char]
+    print(f"# {f1} {message} {f2}")
+    
+def ls_index(string,substring): # last index, but single character only,
+    """Helper function for make_alias()."""
     return len(string)-1 - string[::-1].index(substring)
 
 def make_alias(function_def_str,alias_suffix='',def_indents=0,
-               max_chars_per_line=80,indent='    '):
+               max_chars_per_line=100,indent='    '):
+    """Expects a string ful of function definitions in the form ex.:
+    def try_to_numerical(num_string):
+    def round_to_sf(x, sf):
+    def round_to_sf_str(x, sf,sci_at=4):
+    Semicolon optional.
+    """
     # TODO: make the max_chars_per_line work intelligently
     while function_def_str.count("  ") > 0:
         function_def_str = function_def_str.replace("  "," ")
@@ -108,8 +153,8 @@ def make_alias(function_def_str,alias_suffix='',def_indents=0,
     function_def_str.replace(" def ","def ")
     if function_def_str.count("\ndef") > 1:
         splitty = function_def_str.split("\ndef ")
-        to_return = [make_alias(splitty[0])]
-        for i in range(1,len(splitty)):
+        to_return = []#[make_alias(splitty[0])]
+        for i in range(0,len(splitty)):
             to_return.append(make_alias("def "+splitty[i],
                                         alias_suffix=alias_suffix,
                                        def_indents=def_indents,

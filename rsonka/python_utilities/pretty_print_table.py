@@ -4,26 +4,34 @@ prettyPrintTable
 This is old...it's 2.8 with parenthesis added to print statements. ANd some exceptions. 
 basically I tried to load it in python 3 and went back and fixed all the syntax errors. 
 """
+#from importlib import reload # needed one time to update without resetting kernel
+
 #import numpy as np
 import textwrap, re
-#from ritas_python_util_main import is_float as is_number
+#import python_utilities as pu
+# reload(pu.ritas_python_util_main)
+# reload(pu)
+from ritas_python_util_main import is_float 
+from ritas_python_util_main import round_to_sf_str
 
+def is_number(val):
+    return is_float(val)
 
-def is_number(num_string):
-    try:
-        float(num_string)
-        if float(num_string) == 0:
-            return True
-        #if float(False) == 0, give that a special exception
-        if num_string == False: # wait...shouldn't that be True, for 0?
-            return False
-        # The below handles np.nan and other things like it, hopefully. 
-        if (float(num_string) <=0) ^ (0 < float(num_string)):
-            return True
-        else:
-            return False
-    except: # ValueError
-        return False
+# def is_number(num_string):
+#     try:
+#         float(num_string)
+#         if float(num_string) == 0:
+#             return True
+#         #if float(False) == 0, give that a special exception
+#         if num_string == False: # wait...shouldn't that be True, for 0?
+#             return False
+#         # The below handles np.nan and other things like it, hopefully. 
+#         if (float(num_string) <=0) ^ (0 < float(num_string)):
+#             return True
+#         else:
+#             return False
+#     except: # ValueError
+#         return False
 
 #maxCellSize = 110 # This should probably be a global setting. It's really only necessary for comments right now. 110 because that's the max length of the tables ABOVE the comment table.
 
@@ -75,64 +83,67 @@ def debugPrint(string):
         print(string)
         
 def roundToString(num, rTo):
-    '''Helper method for roundTableContentsToSigFig'''
-    nS = str(num)
-    if nS[-3:] == 'inf':
-        return nS # let's just hope this is okay.
-    order = 0 # What power of ten to multiply num by to get actual num ; 
-    neg = ''
-    if nS[0] == '-':
-        neg = '-'
-        nS = nS[1:]
-    # used to relocate '.' and decide on whether to use exponential notation
-    eLoc = nS.find('e')
-    if not eLoc == -1:
-        order += float(nS[eLoc+1:]) # Yeah, that works. Python's amazing.
-        nS = nS[:eLoc]
-    if not "." in nS: # Yes this needs to come after the above.
-        nS += "."
-    if nS[0] == '0':
-        nS = nS[1:]
-    [preDec, postDec] = nS.split(".")
-    order -= len(postDec)
-    if preDec == '':
-        postDec = postDec.strip("0")
-    nS = preDec+postDec
+    '''Helper method for roundTableContentsToSigFig
+    ...is it better than round_to_sf in ritas_Python_util_main? 
+    answer: I really don't think it is.'''
+    return round_to_sf_str(num, rTo)
+#     nS = str(num)
+#     if nS[-3:] == 'inf':
+#         return nS # let's just hope this is okay.
+#     order = 0 # What power of ten to multiply num by to get actual num ; 
+#     neg = ''
+#     if nS[0] == '-':
+#         neg = '-'
+#         nS = nS[1:]
+#     # used to relocate '.' and decide on whether to use exponential notation
+#     eLoc = nS.find('e')
+#     if not eLoc == -1:
+#         order += float(nS[eLoc+1:]) # Yeah, that works. Python's amazing.
+#         nS = nS[:eLoc]
+#     if not "." in nS: # Yes this needs to come after the above.
+#         nS += "."
+#     if nS[0] == '0':
+#         nS = nS[1:]
+#     [preDec, postDec] = nS.split(".")
+#     order -= len(postDec)
+#     if preDec == '':
+#         postDec = postDec.strip("0")
+#     nS = preDec+postDec
     
-    if len(nS) > rTo: # More digits than we want.
-        start = nS[:rTo] # Note we'll  need one more digit than this to do the rounding.
-        order += len(nS[rTo:])
-        #print str((nS, start, str(round(int(nS[:rTo+1]), -1))))      
-        nS = str(round(int(nS[:rTo+1]), -1))[:-3] #round adds a .0 on. 
-        '''
-        if int(nS[rTo]) >= 5:
-            nS = nS[:rTo-1] + str(int(nS[rTo-1])+1)
-        else:
-            nS = nS[:rTo]  '''
+#     if len(nS) > rTo: # More digits than we want.
+#         start = nS[:rTo] # Note we'll  need one more digit than this to do the rounding.
+#         order += len(nS[rTo:])
+#         #print str((nS, start, str(round(int(nS[:rTo+1]), -1))))      
+#         nS = str(round(int(nS[:rTo+1]), -1))[:-3] #round adds a .0 on. 
+#         '''
+#         if int(nS[rTo]) >= 5:
+#             nS = nS[:rTo-1] + str(int(nS[rTo-1])+1)
+#         else:
+#             nS = nS[:rTo]  '''
             
-    # Alright. The irrelevant sig figs have been pruned. Add back in?
-    if rTo > swapToE or \
-       (order>=0 and order+len(nS) > swapToE) or \
-       (order<0 and max(abs(order), len(nS))>swapToE):
-        # Let's do exponential notation instead of normal display.
-        order += len(nS)-1
-        nS = nS[0]+ "."+ nS[1:] + "e"
-        if order >= 0:
-            nS += "+"
-        nS += str(int(order))
-        debugPrint("returning:"+neg+nS + " original:" +str(num))
-        return neg + nS
-    # Not using exponential notation
-    if order >= 0: # Easy case...
-        debugPrint("returning:"+neg+nS+'0'*order + " original:" +str(num))
-        return neg + nS + '0'*order
-    # Order is < 0
-    if abs(order) >= len(nS):
-        debugPrint("returning:"'0.' + '0'*(abs(len(nS) + int(order))) + nS +" original:" +str(num))
-        return '0.' + '0'*(abs(len(nS) + int(order))) + nS # Remember order <0
-    # Order < 0 and len(nS) > order
-    debugPrint("returning:"+neg + nS[:order] + "." + nS[order:] + " original:" +str(num))
-    return neg + nS[:order] + "." + nS[order:]
+#     # Alright. The irrelevant sig figs have been pruned. Add back in?
+#     if rTo > swapToE or \
+#        (order>=0 and order+len(nS) > swapToE) or \
+#        (order<0 and max(abs(order), len(nS))>swapToE):
+#         # Let's do exponential notation instead of normal display.
+#         order += len(nS)-1
+#         nS = nS[0]+ "."+ nS[1:] + "e"
+#         if order >= 0:
+#             nS += "+"
+#         nS += str(int(order))
+#         debugPrint("returning:"+neg+nS + " original:" +str(num))
+#         return neg + nS
+#     # Not using exponential notation
+#     if order >= 0: # Easy case...
+#         debugPrint("returning:"+neg+nS+'0'*order + " original:" +str(num))
+#         return neg + nS + '0'*order
+#     # Order is < 0
+#     if abs(order) >= len(nS):
+#         debugPrint("returning:"'0.' + '0'*(abs(len(nS) + int(order))) + nS +" original:" +str(num))
+#         return '0.' + '0'*(abs(len(nS) + int(order))) + nS # Remember order <0
+#     # Order < 0 and len(nS) > order
+#     debugPrint("returning:"+neg + nS[:order] + "." + nS[order:] + " original:" +str(num))
+#     return neg + nS[:order] + "." + nS[order:]
         
 
 def isiterable(obj):
@@ -191,8 +202,15 @@ def roundTableContentsToSigFig(table, rTo):
         tbl.append([])
         for cI in range(len(table[rI])):
             val = table[rI][cI]
+            #print(f"{rI},{cI},{val}, {is_number(val)}") 
             if is_number(val):
+                # a change!
+                if int(val) == val:
+                    if int(val)<10**rTo:
+                        tbl[rI].append(val)
+                        continue
                 tbl[rI].append(roundToString(val, rTo))
+                #print(f"{rI},{cI},{val}, {tbl[rI][-1]}") 
             else:
                 tbl[rI].append(val)
     return tbl
@@ -203,19 +221,25 @@ def copyWithElementsStrings(table):
 
 
 
-def makePrettyTableString(origTable, maxCellSize=110):
+def makePrettyTableString(origTable, max_cell_size=110,sig_figs=-42):
     # assumes a rectangular table in the form of a list of rows that are themselves lists of columns
     # e.g. [[row1col1, row1col2], [row2col1, row2col2]]
     # also assumes no \n or \r in elements. I SHOULD FIX THIS, 
     # IT LOOKS TERRIBLE ON MONITOR BECAUSE it has extra whitespace. 
     # I think because it's counting the full string for length and setting columns
     # accordingly.
+    maxCellSize=max_cell_size
     if len(origTable) < 1:
         print("Bad table: " + str(origTable))
         return -1
     """elif len(origTable[0]) < 1:
         print("Bad table: " + str(origTable))
         return -1"""
+    
+    if not sig_figs==-42:
+        #print(f"rounding to {sig_figs}")
+        origTable = roundTableContentsToSigFig(origTable,sig_figs)
+        #print(origTable)
     # Try to sanitize any bad input a little.
     table = copyWithElementsStrings(origTable)
     
@@ -292,8 +316,15 @@ def makePrettyTableString(origTable, maxCellSize=110):
     #print colSizes
     return tblString    
     
-def prettyPrintTable(table, maxCellSize=110):
-    # assumes a rectangular table in the form of a list of rows that are themselves lists of columns
+def prettyPrintTable(table, max_cell_size=110,sig_figs=-42):
+    ''' assumes a rectangular table in the form of a list of rows that are themselves lists of columns
     # e.g. [[row1col1, row1col2], [row2col1, row2col2]]
-    # also assumes no \n in elements
-    uPrint(makePrettyTableString(table, maxCellSize=maxCellSize))
+    # also assumes no \n in elements'''
+    uPrint(makePrettyTableString(table, max_cell_size=max_cell_size,sig_figs=sig_figs))
+    
+    
+def ppt(table,max_cell_size=110,sig_figs=-42):
+    ''' assumes a rectangular table in the form of a list of rows that are themselves lists of columns
+    # e.g. [[row1col1, row1col2], [row2col1, row2col2]]
+    # also assumes no \n in elements'''
+    uPrint(makePrettyTableString(table, max_cell_size=max_cell_size,sig_figs=sig_figs))
