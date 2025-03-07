@@ -9,8 +9,9 @@ import os
 import numpy as np
 import lmfit
 import scipy.interpolate, scipy.signal
+from scipy.stats import median_abs_deviation as mad
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib import ticker
 from glob import glob
 import pandas as pd
 import argparse
@@ -20,8 +21,8 @@ warnings.filterwarnings('ignore')
 
 def analyze_vna(
     data_dir, output_dir=None, bw=0.2,
-    plot_peaks=True, plot_params=True, label='',
-    return_data=False,
+    plot_peaks=True, plot_params=True, plot_mux_params=True,
+    label='', return_data=False,
 ):
     """
     Analyze fine-sweep VNA data.
@@ -87,14 +88,6 @@ def analyze_vna(
     if len(peak_inds) > 924:
         print(f"WARNING: More than 924 resonances found: {len(peak_inds)}.")
 
-    if plot_peaks:
-#         plot_vna_peaks(
-#             freq, resp, peak_inds, suptitle=label, output_dir=output_dir,
-#         )
-        plot_vna_muxband_peaks(
-            freq, s21_db, peak_inds, suptitle=label, output_dir=output_dir,
-        )
-
     res_params = fit_vna_resonances(freq, resp, peak_inds)
     rpd = res_params.to_dict(orient='list')
     for k, val in rpd.items():
@@ -104,8 +97,16 @@ def analyze_vna(
                'peak_inds': peak_inds, 'res_params': rpd,
               }
 
+    if plot_peaks:
+        plot_vna_muxband_peaks(
+            results, suptitle=label, output_dir=output_dir,
+        )
+
     if plot_params:
         plot_vna_params(res_params, suptitle=label,  output_dir=output_dir)
+
+    if plot_mux_params:
+        plot_muxband_params(results, suptitle=label,  output_dir=output_dir)
 
     if output_dir is not None:
         data_fname = "_".join([label, "vna_sweep.npy"]).strip("_")
@@ -121,7 +122,10 @@ def analyze_vna(
         return results
 
 
-def plot_vna_muxband_peaks(freq, s21_db, peak_inds, suptitle='', output_dir=None):
+def plot_vna_muxband_peaks(results, suptitle='', output_dir=None):
+    if isinstance(results,str) and os.path.isfile(results):
+        results = np.load(results, allow_pickle=True).item()
+
     # mux band definitions
     half_lims = np.array([
         (4.018,4.147),
@@ -139,7 +143,7 @@ def plot_vna_muxband_peaks(freq, s21_db, peak_inds, suptitle='', output_dir=None
     sb_cutoffs = [4.0,4.5,5.0,5.5,6.0]
 
     #Plot S21 in db
-    peak_freqs = freq[peak_inds]
+    peak_freqs = results['freq'][results['peak_inds']]
     fig, ax = plt.subplots(figsize=(9,4))
     for band in np.arange(6):
         if band == 4:
@@ -151,35 +155,35 @@ def plot_vna_muxband_peaks(freq, s21_db, peak_inds, suptitle='', output_dir=None
         else:
             fstart, fstop = 4e9 + (0.5e9) * band, 4e9 + (0.5e9) * (band + 1)
             label = "SMuRF Band %s/%s: {num_peaks}" % (band, band + 4)
-        inds = np.where((freq >= fstart) & (freq < fstop))
+        inds = np.where((results['freq'] >= fstart) & (results['freq'] < fstop))
         num_peaks = len(np.where(
             (peak_freqs >= fstart) & (peak_freqs < fstop)
         )[0])
 
         ax.plot(
-            freq[inds] * 1e-9 ,
-            s21_db[inds],
+            results['freq'][inds] * 1e-9 ,
+            results['s21_db'][inds],
             c='k',
             linewidth=1,
             label=label.format(num_peaks=num_peaks)
         )
     for i, band in enumerate(mux_band_lims):
         ax.axvspan(band[0],band[1], fc=muxband_colors[i], alpha=0.3)
-        ax.text(band[0]+0.01, -39, "Band %02d" % i, color=muxband_colors[i],
+        ax.text(band[0]+0.01, -44, "Band %02d" % i, color=muxband_colors[i],
                 fontsize=6, weight='heavy')
     for sb, sb_f in enumerate(sb_cutoffs):
         ax.axvline(sb_f, color='k', linestyle=':')
         if sb>3:
             break
-        ax.text(sb_f+0.15, 13, "SMuRF Band %0d/%0d" % (sb,sb+4),
+        ax.text(sb_f+0.15, 8, "SMuRF Band %0d/%0d" % (sb,sb+4),
                 color='k', fontsize=6, weight='heavy')
 
     ax.set_xlabel("Frequency (GHz)")
     ax.set_ylabel("S21 Magnitude (dB)")
     ax.set_xticks(np.arange(4, 6.3, 0.1), minor=True)
-    ax.set_ylim(-40,15)
+    ax.set_ylim(-45,10)
     ax.set_xlim(3.9,6.1)
-    ax.set_title("%0d resonances" % len(peak_inds))
+    ax.set_title("%0d resonances" % len(results['peak_inds']))
     plt.suptitle(suptitle)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     ax.legend(ncol=3, fontsize='small', loc=(0.38,0.78))
@@ -234,6 +238,9 @@ def plot_vna_peaks(freq, resp, peak_inds, suptitle='', output_dir=None):
 
 
 def plot_vna_params(res_params, suptitle='', output_dir=None):
+    if isinstance(res_params,str) and os.path.isfile(res_params):
+        res_params = np.load(res_params, allow_pickle=True).item()['res_params']
+
     fig = plt.figure(figsize=(9,6))
     ax1 = plt.subplot2grid(shape=(2, 2), loc=(0, 0), colspan=2)
     ax2 = plt.subplot2grid((2, 2), (1,0))
@@ -256,7 +263,7 @@ def plot_vna_params(res_params, suptitle='', output_dir=None):
     ax2.axvline(med,color='b',label="median = %.1f" % med)
     ax2.legend(fontsize='medium')
 
-    formatter = ticker.ScalarFormatter(useMathText=True)
+    formatter = mpl.ticker.ScalarFormatter(useMathText=True)
     formatter.set_scientific(True) 
     formatter.set_powerlimits((-1,1)) 
     ax3.xaxis.set_major_formatter(formatter) 
@@ -274,6 +281,56 @@ def plot_vna_params(res_params, suptitle='', output_dir=None):
         fname = "_".join([suptitle, "vna_params.png"]).strip("_")
         plt.savefig(os.path.join(output_dir, fname))
 
+def plot_muxband_params(results, suptitle='', output_dir=None,
+                        mux_band_lims=None):
+    if isinstance(results,str) and os.path.isfile(results):
+        results = np.load(results, allow_pickle=True).item()
+
+    if mux_band_lims is None:
+        # mux band definitions
+        half_lims = np.array([
+            (4.018,4.147),
+            (4.151,4.280),
+            (4.284,4.414),
+            (4.418,4.581),
+            (4.583,4.715),
+            (4.717,4.848),
+            (4.850,4.981),
+        ])
+        mux_band_lims = np.concatenate((half_lims, half_lims+1))
+
+    fig, axes = plt.subplots(nrows=3, figsize=(9,6), sharex=True)
+
+    for mux_band, (f_lo, f_hi) in enumerate(mux_band_lims):
+        m = (results['res_params']['f0'] > f_lo*1e9) & (results['res_params']['f0'] < f_hi*1e9)
+        delta_f = np.diff(results['res_params']['f0'][m])
+        qi = results['res_params']['Qi'][m]
+
+        axes[0].plot(mux_band, sum(m), marker='*', color='k')
+        axes[1].errorbar(mux_band, np.median(delta_f)*1e-6,
+                         mad(delta_f)*1e-6,
+                         marker='o', color='k')
+        axes[2].errorbar(mux_band, np.median(qi)*1e-3,
+                         mad(qi)*1e-3,
+                         marker='x', color='k')
+
+    axes[0].axhline(66, linestyle=':', color='r')
+    h = axes[0].set_ylabel("# resonances", fontsize=12)
+
+    axes[1].axhline(1.8, linestyle=':', color='r')
+    h = axes[1].set(ylim=(0,2.8))
+    h = axes[1].set_ylabel(r"Med.  $\Delta f$ (MHz)", fontsize=12)
+
+    h = axes[2].set_ylabel("Med. Qi * 1e-3", fontsize=12)
+    h = axes[2].set_xlabel("Nominal Mux band", fontsize=12)
+    h = axes[2].set(xticks=np.arange(0,14))
+
+    plt.suptitle(suptitle, fontsize=14)
+    plt.tight_layout()
+
+    if output_dir is not None:
+        fname = "_".join([suptitle, "muxband_params.png"]).strip("_")
+        plt.savefig(os.path.join(output_dir, fname))
 
 def s21_find_baseline(freq, s21, avg_over=800):
     """
@@ -423,17 +480,7 @@ def fit_vna_resonances(
     left and right bounds of the peak.
     """
 
-    dres = {
-        "resonator_index": [],
-        "f0": [],
-        "Qi": [],
-        "Qc": [],
-        "Q": [],
-        "br": [],
-        "depth": [],
-    }
-    dfres = pd.DataFrame(dres)
-
+    dres = []
     for k, ind in enumerate(peak_inds):
         fs = freq[ind]
         if len(low_indice) == 0:
@@ -454,22 +501,13 @@ def fit_vna_resonances(
             br = get_br(result.best_values["Q"], result.best_values["f_0"]) / 1.0e6
             res_index = k
             depth = get_dip_depth(result.best_fit)
-            dfres = dfres.append(
-                {
-                    "resonator_index": int(res_index),
-                    "f0": f0,
-                    "Qi": Qi,
-                    "Qc": Qc,
-                    "Q": Q,
-                    "br": br,
-                    "depth": depth,
-                },
-                ignore_index=True,
-            )
+            dres.append([int(res_index), f0, Qi, Qc, Q, br, depth])
             k = k + 1
         except Exception as error:
             print(error)
             pass
+    dfres = pd.DataFrame(
+        dres, columns = ['resonator_index','f0','Qi','Qc','Q','br','depth'])
     return dfres
 
 
@@ -491,6 +529,6 @@ if __name__ == "__main__":
     
     analyze_vna(
         args.data_dir, output_dir=args.out, bw=0.2,
-        plot_peaks=True, plot_params=True, label=args.label,
+        plot_peaks=True, plot_params=True, plot_mux_params=True, label=args.label,
         return_data=False,
     )

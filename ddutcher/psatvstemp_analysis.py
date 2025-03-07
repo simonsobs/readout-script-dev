@@ -6,6 +6,7 @@ import os
 import numpy as np
 import scipy.optimize
 import matplotlib.pyplot as plt
+from copy import copy
 
 
 def collect_psatvstemp_data(
@@ -113,6 +114,7 @@ def collect_psatvstemp_data(
         temps_to_cut = np.atleast_1d(temps_to_cut)
     used_temps = set()
     # `used_temps` is just printed to screen for user reference
+    tunefiles = set()
     for line in metadata:
         try:
             temp, bias, bl, sb, fp, note = line
@@ -153,8 +155,18 @@ def collect_psatvstemp_data(
         temp_corr = np.round(temp * temp_scaling + temp_offset, 3)
         used_temps.add(temp_corr)
 
+        iv_analyzed = load_iv_file(fp)
+        if 'meta' in iv_analyzed.keys():
+            tunefiles.add(iv_analyzed['meta']['tunefile'])
+        elif 'metadata' in iv_analyzed.keys():
+            now = iv_analyzed['metadata']
+            if 'iv_info' in now.keys():
+                now = now['iv_info']
+            tunefiles.add(now['tune_file'])
+        else:
+            print(f"No tunefile found for {fp}")
         data_dict = process_iv_data(
-            fp, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn,
+            iv_analyzed, data_dict, temp_corr, bl, cut_increasing_psat, min_rn, max_rn,
             temps_to_cut, psat_level=psat_level, min_psat=min_psat, max_psat=max_psat,
         )
     if not data_dict:
@@ -175,6 +187,7 @@ def collect_psatvstemp_data(
                 'psat':'pW',
                 'R_n':'ohm'
             },
+            'tunefiles':list(tunefiles)
         },
         'data': data_dict
     }
@@ -197,10 +210,7 @@ def collect_psatvstemp_data(
         return results_dict
 
 
-def process_iv_data(
-    fp, data_dict, temp_corr, bl, cut_increasing_psat,
-    min_rn, max_rn, temps_to_cut, psat_level=0.9, min_psat=0, max_psat=np.inf,
-):
+def load_iv_file(fp):
     if "iv_raw_data" in fp:
         iv_analyzed_fp = fp.replace("iv_raw_data", "iv")
     elif "iv_info" in fp:
@@ -221,7 +231,14 @@ def process_iv_data(
                 f"Could not find {iv_analyzed_fp} or "
                 f"any file matching {new_fp} on daq."
             )
-    iv_analyzed = np.load(iv_analyzed_fp, allow_pickle=True).item()
+    return np.load(iv_analyzed_fp, allow_pickle=True).item()
+
+
+def process_iv_data(
+    iv_analyzed, data_dict, temp_corr, bl, cut_increasing_psat,
+    min_rn, max_rn, temps_to_cut, psat_level=0.9, min_psat=0, max_psat=np.inf,
+    return_full=False
+):
     if "data" in iv_analyzed.keys():
         # older sodetlib iv_analyze.py files
         iv_analyzed = iv_analyzed["data"]
@@ -272,6 +289,21 @@ def process_iv_data(
                             psat = False
                     except:
                         pass
+                # Biasability calculation
+                # Added for UHF module analysis, Oct. 2024
+                unstable_idx = np.where(np.abs(np.diff(d['R'], prepend=0)) > 1e-4)[0]
+                if len(unstable_idx) == 0:
+                    unstable_idx = 0
+                else:
+                    unstable_idx = unstable_idx[-1]
+                stable_m = (
+                    (d['R'][unstable_idx:] < 0.9*d['R_n']) &
+                    (d['R'][unstable_idx:] > 0.1*d['R_n'])
+                )
+                if sum(stable_m) == 0 or len(d['R'][unstable_idx:][stable_m]) == 0:
+                    stable_rfrac = 1
+                else:
+                    stable_rfrac = min(d['R'][unstable_idx:][stable_m] / d['R_n'])
 
                 if psat:
                     # key creation
@@ -284,10 +316,15 @@ def process_iv_data(
                             "temp": [],
                             "psat": [],
                             "R_n": [],
+                            "stable_rfrac":[],
                         }
-                    data_dict[bl][sb][ch]["temp"].append(temp_corr)
-                    data_dict[bl][sb][ch]["psat"].append(psat)
-                    data_dict[bl][sb][ch]["R_n"].append(d["R_n"])
+                    if return_full:
+                        data_dict[bl][sb][ch]=d
+                    else:
+                        data_dict[bl][sb][ch]["temp"].append(temp_corr)
+                        data_dict[bl][sb][ch]["psat"].append(psat)
+                        data_dict[bl][sb][ch]["R_n"].append(d["R_n"])
+                        data_dict[bl][sb][ch]["stable_rfrac"].append(stable_rfrac)
 
     else:
         # pysmurf and oldest sodetlib iv.py files
@@ -313,6 +350,21 @@ def process_iv_data(
                             psat = False
                     except:
                         pass
+                # Biasability calculation
+                # Added for UHF module analysis, Oct. 2024
+                unstable_idx = np.where(np.abs(np.diff(d['R'], prepend=0)) > 1e-4)[0]
+                if len(unstable_idx) == 0:
+                    unstable_idx = 0
+                else:
+                    unstable_idx = unstable_idx[-1]
+                stable_m = (
+                    (d['R'][unstable_idx:] < 0.9*d['R_n']) &
+                    (d['R'][unstable_idx:] > 0.1*d['R_n'])
+                )
+                if sum(stable_m) == 0 or len(d['R'][unstable_idx:][stable_m]) == 0:
+                    stable_rfrac = 1
+                else:
+                    stable_rfrac = min(d['R'][unstable_idx:][stable_m] / d['R_n'])
 
                 if psat:
                     # key creation
@@ -325,12 +377,18 @@ def process_iv_data(
                             "temp": [],
                             "psat": [],
                             "R_n": [],
+                            "stable_rfrac":[],
                         }
-                    data_dict[bl][sb][ch]["temp"].append(temp_corr)
-                    data_dict[bl][sb][ch]["psat"].append(psat)
-                    data_dict[bl][sb][ch]["R_n"].append(d["R_n"])
+                    if return_full:
+                        data_dict[bl][sb][ch] = d
+                    else:
+                        data_dict[bl][sb][ch]["temp"].append(temp_corr)
+                        data_dict[bl][sb][ch]["psat"].append(psat)
+                        data_dict[bl][sb][ch]["R_n"].append(d["R_n"])
+                        data_dict[bl][sb][ch]["stable_rfrac"].append(stable_rfrac)
 
     return data_dict
+
 
 
 def do_iv_cuts(d, min_rn, max_rn, psat_level=0.9, min_psat=0, max_psat=np.inf):
@@ -358,12 +416,15 @@ def do_iv_cuts(d, min_rn, max_rn, psat_level=0.9, min_psat=0, max_psat=np.inf):
 
 def plot_by_bl(data_dict, plot_title="", figsize=None):
     tot = 0
-    ncols = 4 #np.min((len(data_dict.keys()), 4))
-    nrows = 3 #int(np.ceil(len(data_dict.keys()) / 4))
+    ncols = np.min((len(data_dict.keys()), 4))
+    nrows = int(np.ceil(len(data_dict.keys()) / 4))
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
     axes = np.atleast_2d(axes)
     for idx, bl in enumerate(sorted(list(data_dict.keys()))):
-        inds = np.unravel_index(bl, (nrows, ncols))
+        if ncols >5:
+            inds = np.unravel_index(bl, (nrows, ncols))
+        else:
+            inds = np.unravel_index(idx, (nrows, ncols))
         ax = axes[inds]
         tes_yield = np.sum(
             [len(data_dict[bl][sb].keys()) for sb in data_dict[bl].keys()]
@@ -393,8 +454,8 @@ def plot_by_freq(
 ):
     if array_freq.lower() == "lf":
         freq1, freq2 = "30", "40"
-        bl_freq_map = {bl: freq1 for bl in [0, 3, 5]}
-        bl_freq_map.update({bl: freq2 for bl in [1, 2]})
+        bl_freq_map = {bl: freq1 for bl in [0, 3, 5, 10, 11]}
+        bl_freq_map.update({bl: freq2 for bl in [1, 2, 8, 9]})
     else:
         if array_freq.lower() == "uhf":
             freq1, freq2 = "220", "280"
@@ -454,7 +515,7 @@ def fit_bathramp_data(
     assem_type="ufm",
     array_freq="mf",
     optical_bl=None,
-    restrict_n=False,
+    bounds=(-np.inf, np.inf),
     fit_g=False,
     p0 = [370, 0.180, 3.5],
     return_data=False,
@@ -473,8 +534,8 @@ def fit_bathramp_data(
     array_freq : {'lf', mf', 'uhf'}
     optical_bl : array-like
         Psats from these bias lines will be plotted separately.
-    restrict_n : bool
-        Restrict fit values of n within 2--4
+    bounds : 2-tuple of array_like
+        Bounds for k-or-g, Tc, n to be passed to `curve_fit`.
     fit_g : bool
         If True, fits G, n, Tc, Psat.
         Otherwise fits k, n, Tc, Psat, solves for G.
@@ -495,32 +556,13 @@ def fit_bathramp_data(
     metadata = data_dict["metadata"]
     data_dict = data_dict['data']
     if not fit_g:
-        if restrict_n:
-
-            def PsatofT(Tb, k, Tc, n):
-                if n < 2 or n > 4:
-                    return 9e9
-                power = k * (Tc**n - Tb**n)
-                return power
-
-        else:
-
-            def PsatofT(Tb, k, Tc, n):
-                power = k * (Tc**n - Tb**n)
-                return power
+        def PsatofT(Tb, k, Tc, n):
+            power = k * (Tc**n - Tb**n)
+            return power
 
     else:
-        if restrict_n:
-
-            def PsatofT(Tb, G, Tc, n):
-                if n < 2 or n > 4:
-                    return 9e9
-                return (G / n) * (Tc - Tb**n / Tc ** (n - 1))
-
-        else:
-
-            def PsatofT(Tb, G, Tc, n):
-                return (G / n) * (Tc - Tb**n / Tc ** (n - 1))
+        def PsatofT(Tb, G, Tc, n):
+            return (G / n) * (Tc - Tb**n / Tc ** (n - 1))
 
     param_dict = {}
 
@@ -540,6 +582,7 @@ def fit_bathramp_data(
                         np.asarray(d["psat"]),
                         p0=this_p0,
                         absolute_sigma=True,
+                        bounds=bounds,
                     )
                 except Exception as e:
                     print(type(e))
@@ -580,7 +623,7 @@ def fit_bathramp_data(
 
     if plot:
         plot_params(
-            param_dict, assem_type, array_freq, optical_bl, restrict_n, plot_title,
+            param_dict, assem_type, array_freq, optical_bl, plot_title,
             param_plot_kw
         )
 
@@ -599,7 +642,6 @@ def fit_bathramp_data(
             },
             "fit_g" : fit_g,
             "p0" : p0,
-            "restrict_n" : restrict_n,
         }
     )
 
@@ -612,7 +654,6 @@ def plot_params(
     assem_type="ufm",
     array_freq="mf",
     optical_bl=[],
-    restrict_n=True,
     plot_title="",
     param_plot_kw=None,
 
@@ -636,9 +677,10 @@ def plot_params(
         "n": {
             "range": (1, 5),
             "label": "%sGHz: %.1f $\pm$ %.1f",
+            "xlabel": "n",
         },
         "R_n" : {
-            "range" : (4e-3, 10e-3),
+            "range" : (4e-3, 12e-3),
         }
     }
     if param_plot_kw is not None:
@@ -649,11 +691,6 @@ def plot_params(
         except KeyError as e:
             raise e # I don't have a better idea yet
     param_plot_kw = param_plot_defaults
-
-    if restrict_n:
-        param_plot_kw["n"]["xlabel"] = "n (restricted to 2--4)"
-    else:
-        param_plot_kw["n"]["xlabel"] = "n (free)"
 
     if array_freq.lower() == "uhf":
         freq1, freq2 = "220", "280"
@@ -666,12 +703,15 @@ def plot_params(
     else:
         freq1, freq2 = "30", "40"
         freq1_psat = [0.62, 1.04]
-        freq2_psat = [2.66, 4.42]
+        if "UFM-Ln" in plot_title:
+            freq2_psat = [1.5, 2.5]
+        else:
+            freq2_psat = [2.66, 4.42]
 
     if assem_type.lower() == "ufm":
         if array_freq.lower() == "lf":
-            bl_freq_map = {bl: freq1 for bl in [0, 3, 5]}
-            bl_freq_map.update({bl: freq2 for bl in [1, 2]})
+            bl_freq_map = {bl: freq1 for bl in [0, 3, 5, 10, 11]}
+            bl_freq_map.update({bl: freq2 for bl in [1, 2, 8, 9]})
         else:
             bl_freq_map = {bl: freq1 for bl in [0, 1, 4, 5, 8, 9]}
             bl_freq_map.update({bl: freq2 for bl in [2, 3, 6, 7, 10, 11]})
@@ -838,6 +878,7 @@ def analyze_bathramp(
     assem_type="ufm",
     optical_bl=None,
     restrict_n=False,
+    bounds=(-np.inf, np.inf),
     fit_g=False,
     temp_list=None,
     temps_to_cut=None,
@@ -885,7 +926,7 @@ def analyze_bathramp(
         array_freq=array_freq,
         assem_type=assem_type,
         optical_bl=optical_bl,
-        restrict_n=restrict_n,
+        bounds=bounds,
         fit_g=fit_g,
         p0=p0,
         plot=plot,
@@ -898,34 +939,28 @@ def analyze_bathramp(
         return data_dict, results_dict
 
 
-def plot_bathramp_iv(
+def extract_bathramp_iv(
     metadata_fp,
-    x_axis='p_tes',
-    y_axis='R',
+    min_rn = 0,
+    max_rn = np.inf,
     temp=100,
-    ls_ch=15,
-    plot_title="",
-    figsize=(18,18),
-    return_data=False,
-    **plot_kwargs,
+    ls_ch=15
 ):
     """
-    Plots the IVs for each bias line taken at specified bath temperature.
+    Extracts the IV data corresponding to one temperature point.
     Assumes IVs were taken one bias line at a time.
     """
     ls_chans =  [13, 14, 15, 16]
     metadata = np.genfromtxt(metadata_fp, delimiter=',', dtype=None,
                              names=True, encoding=None)
     data_dict = {}
-    tot = 0
-
-    fig, axs = plt.subplots(3, 4,figsize=figsize, sharex=True, sharey=True)
-
+    done = False
     for line in metadata:
         try:
             this_temp, bias, bl, sb, fp, note = line
         except ValueError:
             this_temp, bl, sb, fp, note = line
+        print_temp=copy(this_temp)
         if isinstance(this_temp, np.int64):
             pass
         elif isinstance(this_temp, str):
@@ -938,8 +973,9 @@ def plot_bathramp_iv(
         if bl == "all":
             continue
         bl = int(bl)
-        ax = axs[np.unravel_index(bl, (3,4))]
-
+        if not done:
+            print(print_temp)
+            done = True
         if 'iv_raw_data' in fp:
             iv_analyzed_fp = fp.replace("iv_raw_data", "iv")
         elif 'iv_info' in fp:
@@ -963,61 +999,38 @@ def plot_bathramp_iv(
                     f"any file matching {new_fp} on daq."
                 )
         iv_analyzed = np.load(iv_analyzed_fp, allow_pickle=True).item()
-        if 'data' in iv_analyzed.keys():
-            iv_analyzed = iv_analyzed['data']
+        data_dict = process_iv_data(
+            iv_analyzed, data_dict, temp, bl, False, min_rn, max_rn, [],
+            return_full=True)
 
+    return data_dict
+
+
+def plot_bathramp_iv(
+    data_dict,
+    x_axis='p_tes',
+    y_axis='R',
+    plot_title="",
+    figsize=(18,18),
+    **plot_kwargs,
+):
+    """
+    Plots the IVs for each bias line taken at specified bath temperature.
+    Assumes IVs were taken one bias line at a time.
+    """
+
+    fig, axs = plt.subplots(3, 4,figsize=figsize, sharex=True, sharey=True)
+    tot = 0
+
+    for bg in data_dict.keys():
+        ax = axs[np.unravel_index(bg, (3,4))]
         now_tot = 0
+        for sb in data_dict[bg].keys():
+            for ch, d in data_dict[bg][sb].items():
+                ax.plot(d[x_axis], d[y_axis])
+                now_tot += 1
 
-        if bl not in data_dict.keys():
-            data_dict[bl] = {}
-
-        if 'bgmap' in iv_analyzed.keys():
-            idx = iv_analyzed['bgmap'] == bl
-
-            for ind in range(np.sum(idx)):
-                ch = iv_analyzed['channels'][idx][ind]
-                sb = iv_analyzed['bands'][idx][ind]
-
-                d = {}
-                for k in [
-                    'R', 'R_n','R_L', 'p_tes','v_tes', 'i_tes',
-                    'p_sat','si', 'v_bias',
-                ]:
-                    d[k] = iv_analyzed[k][idx][ind]
-                d['p_tes'] *= 1e12
-                d['p_sat'] *= 1e12 
-
-                psat = do_iv_cuts(d, 6e-3, 9e-3)
-
-                if psat:
-                    # key creation
-                    if sb not in data_dict[bl].keys():
-                        data_dict[bl][sb] = dict()
-                    d["Rfrac"] = d['R']/d['R_n']
-                    data_dict[bl][sb][ch] = d
-
-                    ax.plot(d[x_axis], d[y_axis])
-                    now_tot += 1
-        else:
-            for sb in iv_analyzed.keys():
-                if sb == "high_current_mode":
-                    continue
-                for ch, d in iv_analyzed[sb].items():
-                    psat = do_iv_cuts(d, 6e-3, 9e-3)
-
-                    if psat:
-                        # key creation
-                        if sb not in data_dict[bl].keys():
-                            data_dict[bl][sb] = dict()
-                        if 'i_tes' not in d.keys():
-                            d['i_tes'] = d['v_tes'] / d['R']
-                        d["Rfrac"] = d['R']/d['R_n']
-                        data_dict[bl][sb][ch] = d
-
-                        ax.plot(d[x_axis],d[y_axis])
-                        now_tot += 1
-
-        ax.set_title("BL %s: %s TESs" % (bl, now_tot), fontsize=12)
+        ax.set_title("BL %s: %s TESs" % (bg, now_tot), fontsize=12)
         ax.set(**plot_kwargs)
         ax.grid(linestyle='--')
 
@@ -1029,6 +1042,3 @@ def plot_bathramp_iv(
     plt.suptitle(plot_title, fontsize=20)
     plt.tight_layout()
     plt.subplots_adjust(top=0.95)
-
-    if return_data:
-        return data_dict

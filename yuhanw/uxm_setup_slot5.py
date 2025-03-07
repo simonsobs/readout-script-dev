@@ -25,7 +25,7 @@ from sodetlib.det_config import DetConfig
 warnings.filterwarnings("ignore")
 
 bands = [0,1,2,3,4,5,6,7]
-slot_num = 2
+slot_num = 5
 
 cfg = DetConfig()
 cfg.load_config_files(slot=slot_num)
