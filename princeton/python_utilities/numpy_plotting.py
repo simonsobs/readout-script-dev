@@ -5,7 +5,6 @@ numpy plotting
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import curve_fit
 #from ritas_python_util_main import make_filesafe 
 
 def make_filesafe(filename):
@@ -19,11 +18,9 @@ fileExtension = "png"
 def saveFig(plt, filename):
     plt.savefig(makeFilesafe(filename)+"." +fileExtension, bbox_inches='tight')
     
-# --- newer stuff ---
 
-# NOTE: ALSO some very useful plotting functions for dictionary-axis in the dax file.
 
-def fit_and_resid(function,xs,ys,p0,bounds=([],[]),own_fig=True, plot_which_x_variable=-42,
+def fit_and_resid(function,xs,ys,p0,own_fig=True, plot_which_x_variable=-42,
                   label='',plot_args={},legend=False,x_label='',y_label='',suptitle=''):
     '''to put on other, own_fig= (fit_plot ax, resid_plot ax); 
     can make one or both false to not do that plot.
@@ -42,11 +39,8 @@ def fit_and_resid(function,xs,ys,p0,bounds=([],[]),own_fig=True, plot_which_x_va
                 fp = plt
             if rp ==True:
                 rp = plt
-    if bounds == ([],[]):
-        bounds = (np.full((len(p0),),-np.inf),np.full((len(p0),),np.inf))
-    #print(bounds)
     # the fit.
-    (prm,cov) = curve_fit(function, xs, ys, p0,bounds=bounds)
+    (prm,cov) = curve_fit(function, xs, ys, p0)
     
     # the y the fit curve predicts
     pred_y = function(xs,*prm)
@@ -57,10 +51,7 @@ def fit_and_resid(function,xs,ys,p0,bounds=([],[]),own_fig=True, plot_which_x_va
     
     if fp:
         # the original data
-        if 'alpha' in plot_args.keys() or 'marker' in plot_args.keys():
-            p = fp.plot(xs,ys,label=label,**plot_args)
-        else:
-            p = fp.plot(xs,ys,alpha=0.5,marker='.',label=label,**plot_args)
+        p = fp.plot(xs,ys,alpha=0.5,marker='.',label=label,**plot_args)
         # the fit line
         fp.plot(xs,pred_y,linestyle='dashed',linewidth=0.5,color=p[-1].get_color(),**plot_args)
         try: # I assume it's usually going to be a subplot
@@ -96,8 +87,8 @@ def fit_and_resid(function,xs,ys,p0,bounds=([],[]),own_fig=True, plot_which_x_va
     
     
     
-#-----------------------------------------------------------# 
-# Old code for trying to make the matplotlib subplots the same as plots
+    
+# Old code for trying to make the matplotlib subplots the same as plots, plus other stuff, below. 
 
 
 # Specific common types of graphs.

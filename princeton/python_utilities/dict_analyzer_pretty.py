@@ -1,18 +1,7 @@
 """
 Rita Sonka 3/30/2022
-Made to QUICKLY create reference illustrations of the structure of .npy 
-files and other LARGE dictionaries. Often faster than simply pasting 
-the dictionary reference into jupyterlab and pressing shift+enter,
-especially if ignore_after is set reasonably.
-
-pdap prints the reference string of input dictionary d.
-
-# ======================= FUNCTIONS (Helpers indented) ========================
-pdap(d, max_line=80, ignore_type='any', ignore_after=25, 
-         do_padding=True, preview_val='fast', s_key="", starting_space="")
-dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=50, 
-                         do_padding=True,preview_val='fast',s_key="", 
-                         starting_space="")
+Made to create reference illustrations of the structure of .npy files 
+and other large dictionaries. 
 """
 import sys
 import numpy as np
@@ -21,48 +10,7 @@ import numpy as np
 def pdap(d, max_line=80, ignore_type='any', ignore_after=25, 
          do_padding=True, preview_val='fast', s_key="", starting_space=""):
     """ Runs dict_analyzer_pretty with given arguments and prints
-    the output. dict_analyzer_pretty docstring:
-    Trawls through a large nested dictionary and creates a string to 
-    illustrate its structure, reporting each key, the type() of that key's
-    value, and a preview of the string representation of that key's value;
-    except, it ignores excess (> ignore_after) keys of ignore_type on
-    a given dictionary level. 
-    ---- Args -------
-    d               : dict : the dictionary to traverse
-    max_line        : int  : line character # to end value previews at
-    ignore_type     : type : Ignore excess keys of this type @ one dict level
-                           : NOTE: may be "numpy.int64" or similar!
-                           : MAY BE string 'all', to not care about type.
-    ignore_after    : int  : # of keys of ignore type to show (on a given 
-                           : dict level) before ignoring
-    do_padding      : bool : Pad to align colons like in this docstring?
-    preview_val     : ??   : Display val preview? True, False, or fast
-                           : immutable is a cautious estimate.
-    s_key           : ??   : "start key," recursive parameter.
-    starting_space  : str  : recursive parameter.
-
-    ---- Returns ----
-    A string that illustrates the dictionary,  of the following form,
-    with all colons on a given level aligned via space padding if
-    do_padding=True (assume  below that keys don't have dictionary
-    values unless specified):
-    
-    {
-        key1 : type(key1) <preview of key1>
-        key2 : type(key2) <preview of key2>
-        key3 : dict       {
-            subkey1 : type(subkey1) <preview of subkey1>
-            subkey2 : type(subkey2) <preview of subkey2>
-            subkey3 : dict          {
-                subsubkey1 : type(subsubkey1) <preview of subsubkey1>
-            } #(subkey3)
-        } #(key3) 
-    } #()
-    
-    except if you set the ignore settings and it ignores keys, it will report
-    how many were ignored in a given dictionary in parentheses after the 
-    #(dictkeyname) following that dictionary preview's closing bracket.
-    """
+    the output. """
     print(dict_analyzer_pretty(d, max_line=max_line, ignore_type=ignore_type, 
                                ignore_after=ignore_after, do_padding=do_padding,
                                preview_val=preview_val,
@@ -169,14 +117,8 @@ def dict_analyzer_pretty(d, max_line=80, ignore_type='any', ignore_after=50,
                  str(ignore_type)[8:-2] + ")"
     return string
 
-
-def cut_to_valspace(valstr,value_space):
-    if len(valstr)<= value_space:
-        return valstr
-    return valstr[:value_space-3] + "..."
-
 def preview_fast(val,valstr,value_space=0,count=0):
-    '''valstr should start off as '', even if val was a str.'''
+    # valstr should start off as '', even if it was a str.
 #     print(f"preview_fast {count} {type(val)} {valstr} ")
 #     if count >= 3:
 #         return f"preview_fast called {3} times" 
@@ -188,13 +130,18 @@ def preview_fast(val,valstr,value_space=0,count=0):
             typy(val)
             va = str(val)
 #             print(va)
-            return cut_to_valspace(va,value_space)
+            if len(va) > value_space:
+                va = va[:value_space-3] + "..."
+            return va
         except:
             pass
     # Now, the immutable iterable types.
     # can't catch similar castables here.
     if type(val) == str or type(val)==np.str_: # no calculation, it's a str already.
-        return cut_to_valspace(val,value_space)
+        if len(val) <= value_space:
+            return val
+        else:
+            return val[:value_space-3] + "..."
     for typy in [tuple, frozenset,bytes]:
         if type(val) == typy:
             valstr1 = str(typy())[:-1]
@@ -220,8 +167,12 @@ def preview_fast(val,valstr,value_space=0,count=0):
 #     except TypeError:
 #         pass
     no_prev = f"**NO PREV:{str(type(val))[8:-2]}**"
-    return cut_to_valspace(no_prev,value_space)
-                           
+    if len(no_prev) <= value_space:
+        return no_prev
+    return no_prev[:value_space-3]+"..."
+            
+                
+                
 
 def preview_special_iter(val,valstr1, end, value_space,count=0):
 #     print(f"preview_special_iter {count} {valstr1}")
@@ -246,11 +197,16 @@ def preview_special_iter(val,valstr1, end, value_space,count=0):
         return valstr1[:value_space-3] + "..."
     return valstr1
                 
+                
+                
 
+                
+                
+                
         
 
 
-# Ultimately concluded that there was no way to generically do this in python, unfortunately. 
+# Ultimately concluded that there was no way to do this in python, unfortunately. 
 # def get_val_preview(val,space,prev=''):
 #     # does not actually cut to space.
 #     if not is_iter(val): 
