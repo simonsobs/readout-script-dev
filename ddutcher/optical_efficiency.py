@@ -18,14 +18,14 @@ filter_dir = "/home/ddutcher/data/filters/"
 def filter_func(filters):
     """
     Return combined transmission of the specified LPE filters.
-    
+
     Parameters
     ----------
     `filters` : str or list of str
         If 'lf,'mf' or 'uhf', the standard set of Princeton LPE filters is used.
         If given as a list, the transmission of each filter will be multiplied
         together to yield the total transmission of the filter stack.
-    
+
     Returns
     -------
     filter_func : function
@@ -74,21 +74,34 @@ def filter_func(filters):
     return filter_func
 
 
-def bandpass_funcs(array_freq):
+def bandpass_funcs(array_freq, bolocalc_version='V3r6', peak_normalize=True):
     """
     Parameters
     ----------
     array_freq : {'lf', 'mf', or 'uhf'}
-        
+    bolocalc_version : {'v3r6','v3r7','v3r8'}
+    peak_normalize : bool
     """
+    if array_freq.lower == "lf":
+        bandpass_dir = "/home/ddutcher/data/filters"
+    else:
+        bandpass_dir = os.path.join(
+            "/home/ddutcher/repos/bolocalc-so-model",
+            bolocalc_version,f"{bolocalc_version}_Baseline/LAT/{array_freq.upper()}",
+            "config/Bands/Detectors/"
+        )
     if array_freq.lower() == "lf":
         array_freq = "NIST_LF"
-    freq1 = np.loadtxt(os.path.join(filter_dir, f"{array_freq.upper()}_1_peak.txt"))
-    freq2 = np.loadtxt(os.path.join(filter_dir, f"{array_freq.upper()}_2_peak.txt"))
-    
-    freq1_func = interp1d(freq1[:,0]*1e9, freq1[:,1] / np.max(freq1[:,1]))
-    freq2_func = interp1d(freq2[:,0]*1e9, freq2[:,1] / np.max(freq2[:,1]))
-    
+    freq1 = np.loadtxt(os.path.join(bandpass_dir, f"{array_freq.upper()}_1.txt"))
+    freq2 = np.loadtxt(os.path.join(bandpass_dir, f"{array_freq.upper()}_2.txt"))
+
+    if peak_normalize:
+        freq1[:,1] = freq1[:,1] / np.max(freq1[:,1])
+        freq2[:,1] = freq2[:,1] / np.max(freq2[:,1])
+
+    freq1_func = interp1d(freq1[:,0]*1e9, freq1[:,1])
+    freq2_func = interp1d(freq2[:,0]*1e9, freq2[:,1])
+
     return freq1_func, freq2_func
 
 
@@ -144,7 +157,7 @@ def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
 
 
 def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
-                   do_dark_correction=True, dark_correction=None,
+                   do_dark_correction=True, dark_correction=None, **bandpass_args,
                   ):
 
     if isinstance(cl_data, str):
@@ -183,7 +196,7 @@ def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
         filters = array_freq
 
     filt_func = filter_func(filters)
-    freq1_func, freq2_func = bandpass_funcs(array_freq)
+    freq1_func, freq2_func = bandpass_funcs(array_freq, **bandpass_args)
 
     def freq1_fit(temps, C, eta):
         ans=np.zeros(len(temps))
@@ -191,15 +204,15 @@ def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
             ans[i] =(C-eta*1e12*quad(
                 lambda v: freq1_func(v)*filt_func(v)*cnst.h*v /
                 (np.e**(cnst.h*v/(cnst.k*T))-1), lower_f, upper_f)[0])
-        return ans        
-        
+        return ans
+
     def freq2_fit(temps, C, eta):
         ans=np.zeros(len(temps))
         for i, T in enumerate(temps):
             ans[i] =(C-eta*1e12*quad(
                 lambda v: freq2_func(v)*filt_func(v)*cnst.h*v /
                 (np.e**(cnst.h*v/(cnst.k*T))-1), lower_f, upper_f)[0])
-        return ans        
+        return ans
 
     eta_dict = {
         'metadata': cl_data['metadata'],
@@ -230,7 +243,10 @@ def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
                 if len(temp)<2:
                     continue
 
-                popt, pcov = curve_fit(fit_func, temp, psat)
+                try:
+                    popt, pcov = curve_fit(fit_func, temp, psat)
+                except:
+                    continue
 
                 # key creation
                 if bg not in eta_dict['data'].keys():
@@ -295,6 +311,7 @@ def plot_opteff(eta_dict, ufm='', array_freq='mf', return_plots=False):
         ax[i].set_ylabel("Count")
 
     fig_opt.suptitle(f'{ufm} Optical Efficiency')
+    plt.tight_layout()
 
     fig_dark, ax = plt.subplots(figsize=(9,4), ncols=2)
     for i, freq in enumerate([freq1, freq2]):
@@ -309,6 +326,7 @@ def plot_opteff(eta_dict, ufm='', array_freq='mf', return_plots=False):
         ax[i].set_ylabel("Count")
 
     fig_dark.suptitle(f'{ufm} Dark Efficiency')
+    plt.tight_layout()
 
     if return_plots:
         return fig_opt, fig_dark

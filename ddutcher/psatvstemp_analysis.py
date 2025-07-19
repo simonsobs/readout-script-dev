@@ -121,7 +121,7 @@ def collect_psatvstemp_data(
         except ValueError:
             temp, bl, sb, fp, note = line
         # Ignore files that aren't IV curves
-        if note not in [False, "", "IV"]:
+        if note not in [False, "", "IV", "coldload"]:
             continue
         if bl == "all":
             continue
@@ -142,6 +142,10 @@ def collect_psatvstemp_data(
         if temp > 40:
             temp *= 1e-3
         temp = round(temp, 3)
+
+        if not isinstance(temps_to_cut,dict):
+            if temp in temps_to_cut or temp*1e3 in temps_to_cut:
+                continue
 
         if thermometer_id is not None:
             if thermometer_id.lower() == "x-066":
@@ -259,6 +263,16 @@ def process_iv_data(
             if temp_corr in temp_cut or temp_corr * 1e3 in temp_cut:
                 continue
 
+            # parse max_psat
+            if np.isscalar(max_psat):
+                _max_psat = max_psat
+            elif isinstance(max_psat, dict):
+                _max_psat = max_psat[bl]
+            elif isinstance(max_psat, (list,np.ndarray)):
+                _max_psat = max_psat[bl]
+            else:
+                raise TypeError(f"`max_psat` cannot be {type(max_psat)}")
+
             idx = iv_analyzed["bgmap"] == bl
             for ind in range(np.sum(idx)):
                 ch = iv_analyzed["channels"][idx][ind]
@@ -281,7 +295,7 @@ def process_iv_data(
 
                 psat = do_iv_cuts(
                     d, min_rn, max_rn, psat_level=psat_level,
-                    min_psat=min_psat, max_psat=max_psat)
+                    min_psat=min_psat, max_psat=_max_psat)
                 if psat and cut_increasing_psat:
                     try:
                         prev_psat = data_dict[bl][sb][ch]["psat"][-1]
@@ -336,13 +350,24 @@ def process_iv_data(
             temp_cut = temps_to_cut
         if temp_corr in temp_cut or temp_corr * 1e3 in temp_cut:
             return data_dict
+
+        # parse max_psat
+        if np.isscalar(max_psat):
+            _max_psat = max_psat
+        elif isinstance(max_psat, dict):
+            _max_psat = max_psat[bl]
+        elif isinstance(max_psat, (list,np.ndarray)):
+            _max_psat = max_psat[bl]
+        else:
+            raise TypeError(f"`max_psat` cannot be {type(max_psat)}")
+
         for sb in iv_analyzed.keys():
             if sb == "high_current_mode":
                 continue
             for ch, d in iv_analyzed[sb].items():
                 psat = do_iv_cuts(
                     d, min_rn, max_rn, psat_level=psat_level,
-                    min_psat=min_psat, max_psat=max_psat)
+                    min_psat=min_psat, max_psat=_max_psat)
                 if psat and cut_increasing_psat:
                     try:
                         prev_psat = data_dict[bl][sb][ch]["psat"][-1]
@@ -619,6 +644,8 @@ def fit_bathramp_data(
                     psat = d["psat"][(d["temp"].index(0.100))]
                 else:
                     psat = param_dict[bl][sb][ch]["k"] * (tc**n - 0.100**n)
+                if psat < 0:
+                    psat = np.nan
                 param_dict[bl][sb][ch]["psat100mk"] = psat
 
     if plot:
@@ -941,8 +968,11 @@ def analyze_bathramp(
 
 def extract_bathramp_iv(
     metadata_fp,
+    psat_level=0.9,
     min_rn = 0,
     max_rn = np.inf,
+    min_psat=0,
+    max_psat=np.inf,
     temp=100,
     ls_ch=15
 ):
@@ -950,7 +980,7 @@ def extract_bathramp_iv(
     Extracts the IV data corresponding to one temperature point.
     Assumes IVs were taken one bias line at a time.
     """
-    ls_chans =  [13, 14, 15, 16]
+    ls_chans = [13, 14, 15, 16]
     metadata = np.genfromtxt(metadata_fp, delimiter=',', dtype=None,
                              names=True, encoding=None)
     data_dict = {}
@@ -961,12 +991,12 @@ def extract_bathramp_iv(
         except ValueError:
             this_temp, bl, sb, fp, note = line
         print_temp=copy(this_temp)
-        if isinstance(this_temp, np.int64):
+        if isinstance(this_temp, np.int64) or isinstance(this_temp, float):
             pass
         elif isinstance(this_temp, str):
             this_temp = this_temp.split(" ")[ls_chans.index(ls_ch)]
         else:
-            raise ValueError()
+            raise TypeError(type(this_temp))
         if not (float(this_temp) == temp or float(this_temp)*1e-3 == temp):
             continue
         # Ignore files that aren't single-bias-line IV curves
@@ -1001,7 +1031,7 @@ def extract_bathramp_iv(
         iv_analyzed = np.load(iv_analyzed_fp, allow_pickle=True).item()
         data_dict = process_iv_data(
             iv_analyzed, data_dict, temp, bl, False, min_rn, max_rn, [],
-            return_full=True)
+            psat_level=psat_level, min_psat=min_psat, max_psat=max_psat,return_full=True)
 
     return data_dict
 

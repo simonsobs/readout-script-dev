@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 
 def get_tau_nep_data(metadata_fp, bgmap_fp=None, optical_bl=[8,9,10,11],
                      start_index=0):
-    nrows, ncols = 3, 4
     metadata = np.genfromtxt(metadata_fp, delimiter=",",unpack=False,
                              dtype=None, names=True, encoding=None)
     biasstep_lines = metadata[
@@ -121,7 +120,7 @@ def compute_transition_values(results_dict):
     """
     Compute the per-bias line values at 50% Rn.
     """
-    quants = ['tau', 'nep', 'rfrac', 'r_tes', 'nei', 'p_tes']
+    quants = ['v_bias', 'rfrac', 'nep', 'r_tes', 's_i', 'tau', 'tau_std', 'nei', 'p_tes']
     transition_values = {
         'bands':[],
         'channels':[],
