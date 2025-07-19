@@ -1,7 +1,9 @@
-# tes_yield.py
+# tes_yield__new_iv_func.py
 '''
 Check TES yield by taking bias tickle (from sodetlib) and IV curves.
 Display quality in biasability, 50% RN target V bias, Psat and Rn.
+
+This code uses the same iv daq function with site. Code developing started at Dec. 11 2024 by Yudai Seino.
 '''
 import matplotlib
 matplotlib.use('Agg')
@@ -14,7 +16,8 @@ import glob
 import csv
 import pysmurf.client
 from sodetlib.det_config  import DetConfig
-from sodetlib.smurf_funcs import det_ops
+#from sodetlib.smurf_funcs import det_ops
+from sodetlib.operations import iv
 from sodetlib.operations.bias_steps import take_bgmap
 from pysmurf.client.util.pub import set_action
 import logging
@@ -41,49 +44,63 @@ def tickle_and_iv(
 
     if current_mode.lower() in ['high', 'hi']:
         high_current_mode = True
-        bias_high /= S.high_low_current_ratio
-        bias_low /= S.high_low_current_ratio
-        bias_step /= S.high_low_current_ratio
+##### This feature is for old func. This must not be done with new function.
+#        bias_high /= S.high_low_current_ratio
+#        bias_low /= S.high_low_current_ratio
+#        bias_step /= S.high_low_current_ratio
     else:
         high_current_mode = False
 
-    for ind, bg in enumerate(target_bg):
-        row = {}
-        row['bath_temp'] = str(bath_temp)
-        row['bias_line'] = bg
-        row['band'] = 'all'
+        
+    row = {}
+    row['bath_temp'] = str(bath_temp)
+    row['bias_line'] = "_".join(target_bg.astype(str).tolist())
+    row['band'] = 'all'
 
-        logger.info(f'Taking IV on bias line {bg}, all smurf bands.')
+    logger.info(f'Taking IV on bias line {target_bg}, all smurf bands.')
 
-        # if ind == 0:
-        #     cool_wait = 300
-        # else:
-        cool_wait = 30
+    # if ind == 0:
+    #     cool_wait = 300
+    # else:
+    cool_wait = 30
 
-        # if bg==3:
-        #     overbias_voltage = 18
-        # elif bg in [5,2]:
-        #     overbias_voltage = 15
-        # else:
-        #     overbias_voltage = 13
+    # if bg==3:
+    #     overbias_voltage = 18
+    # elif bg in [5,2]:
+    #     overbias_voltage = 15
+    # else:
+    #     overbias_voltage = 13
 
-        iv_data = det_ops.take_iv(
-            S, cfg,
-            bias_groups = [bg], wait_time=wait_time, bias_high=bias_high,
-            bias_low=bias_low, bias_step=bias_step,
-            overbias_voltage=overbias_voltage, cool_wait=cool_wait,
-            high_current_mode=high_current_mode,
-            make_channel_plots=False, save_plots=True,
-            phase_excursion_min=3.0,
-        )
-        dat_file = iv_data.replace('info','analyze')     
-        row['data_path'] = dat_file
-        with open(out_fn, 'a', newline = '') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writerow(row)
-        time.sleep(30)
+#####
+#This part is previous func for DAQ at lab.
+#####
+#       iv_data = det_ops.take_iv(
+#            S, cfg,
+#            bias_groups = [bg], wait_time=wait_time, bias_high=bias_high,
+#            bias_low=bias_low, bias_step=bias_step,
+#            overbias_voltage=overbias_voltage, cool_wait=cool_wait,
+#            high_current_mode=high_current_mode,
+#            make_channel_plots=False, save_plots=True,
+#            phase_excursion_min=3.0,
+#        )
+        
+    iva = iv.take_iv(
+        S, cfg,
+        bias_groups = target_bg, wait_time=wait_time, bias_high=bias_high,
+        bias_low=bias_low, bias_step=bias_step,
+        overbias_voltage=overbias_voltage, cool_wait=cool_wait,
+        high_current_mode=high_current_mode
+    )
+    
+    
+    # I know making this csv file is redundant.  
+    dat_file = cfg.dev.exp['iv_file']
+    row['data_path'] = dat_file
+    with open(out_fn, 'a', newline = '') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerow(row)
 
-    return out_fn
+    return iva, out_fn
 
 
 @set_action()
@@ -242,8 +259,8 @@ def tes_yield(S, target_bg, out_fn, start_time):
         ax_psat.set_xlabel('P_sat (pW)')
         ax_psat.set_ylabel('count')
         ax_psat.grid()
-        ax_psat.hist(psat, range=(0,5), bins=25,histtype= u'step',linewidth=2,color = 'r')
-#        ax_psat.hist(psat, range=(0,50), bins=25,histtype= u'step',linewidth=2,color = 'r') #Temporally YS edited here for UHF..
+#        ax_psat.hist(psat, range=(0,20), bins=25,histtype= u'step',linewidth=2,color = 'r')
+        ax_psat.hist(psat, range=(0,50), bins=25,histtype= u'step',linewidth=2,color = 'r') #Temporally YS edited here for UHF..
         ax_psat.axvline(np.median(psat), linestyle='--', color='gray')
         ax_psat.set_title('bl {}, yield {} median Psat {:.2f} pW'.format(
             bl,count_num,np.median(psat))
@@ -272,12 +289,12 @@ def run(S, cfg, target_bg, overbias_voltage=15,bias_high=19.9, bias_low=0,
         bias_step=0.025, wait_time=0.01, bath_temp=100,current_mode='low', make_bgmap=False):
     start_time = S.get_timestamp()
 
-    out_fn = tickle_and_iv(
+    iva, out_fn = tickle_and_iv(
         S, target_bg, overbias_voltage, bias_high, bias_low, bias_step, wait_time, bath_temp,
         start_time, current_mode, make_bgmap)
-    target_vbias = tes_yield(S, target_bg, out_fn, start_time)
+#    target_vbias = tes_yield(S, target_bg, out_fn, start_time) # no calculation for a while
     logger.info(f'Saving data to {out_fn}')
-    return target_vbias
+    return True #temporaly setting
 
 
 if __name__ == "__main__":

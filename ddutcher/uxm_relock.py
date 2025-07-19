@@ -47,7 +47,9 @@ def uxm_relock(S, cfg, bands=None, setup_notches=False, estimate_phase_delay=Fal
 
         if not setup_notches:
             print('running relock')
-            S.relock(band, tone_power=cfg.dev.bands[band]['tone_power'])
+            S.relock(band, tone_power=cfg.dev.bands[band]['tone_power'],
+                     res_num=np.arange(0,50),
+            )
         else:
             S.load_master_assignment(band, S.freq_resp[band]['channel_assignment'])
             S.setup_notches(band, tone_power=cfg.dev.bands[band]['tone_power'],

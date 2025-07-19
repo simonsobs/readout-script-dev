@@ -10,7 +10,8 @@ import os
 import time
 import glob
 from sodetlib.det_config  import DetConfig
-from sodetlib.smurf_funcs import det_ops
+#from sodetlib.smurf_funcs import det_ops
+from sodetlib.operations import iv
 import sodetlib as sdl
 import numpy as np
 from scipy.interpolate import interp1d
@@ -103,38 +104,50 @@ with open(out_fn, 'a', newline = '') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
     writer.writerow(row)
 
-for ind, bias_gp in enumerate(bias_groups):
-    row = {}
-    row['bath_temp'] = bath_temp
-    row['bias_line'] = bias_gp
-    row['band'] = 'all'
-    row['bias_voltage'] = 'HCM_IV'
-    row['type'] = 'IV'
-    print(f'Taking IV on bias line {bias_gp}')
+row = {}
+row['bath_temp'] = bath_temp
+row['bias_line'] = "_".join(np.array(bias_groups).astype(str).tolist())
+row['band'] = 'all'
+row['bias_voltage'] = 'HCM_IV'
+row['type'] = 'IV'
+print(f'Taking IV on bias line {bias_groups}')
 
-    # if ind == 0:
-    #     cool_wait = 300
-    # else:
-    cool_wait = 30
+# if ind == 0:
+#     cool_wait = 300
+# else:
+cool_wait = 30
       
-    row['data_path'] = det_ops.take_iv(
-        S,
-        cfg,
-        bias_groups=[bias_gp],
-        wait_time=0.01,
-        bias_high=35 / S.high_low_current_ratio,
-        bias_low=0,
-        bias_step=0.025 / S.high_low_current_ratio,
-        overbias_voltage=19,
-        cool_wait=cool_wait,
-        high_current_mode=True,
-        make_channel_plots=False,
-        save_plots=True,
-        do_analysis=True,
-    )
+#    row['data_path'] = det_ops.take_iv(
+#        S,
+#        cfg,
+#        bias_groups=[bias_gp],
+#        wait_time=0.01,
+#        bias_high=35 / S.high_low_current_ratio,
+#        bias_low=0,
+#        bias_step=0.025 / S.high_low_current_ratio,
+#        overbias_voltage=19,
+#        cool_wait=cool_wait,
+#        high_current_mode=True,
+#        make_channel_plots=False,
+#        save_plots=True,
+#        do_analysis=True,
+#    )
+iva = iv.take_iv(
+    S,
+    cfg,
+    bias_groups=bias_groups,
+    wait_time=0.01,
+    bias_high=35,
+    bias_low=0,
+    bias_step=0.025,
+    overbias_voltage=19,
+    cool_wait=cool_wait,
+    high_current_mode=True,
+)
 
-    with open(out_fn, 'a', newline = '') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writerow(row)
+dat_file = cfg.dev.exp['iv_file']
+row['data_path'] = dat_file
 
-    time.sleep(30)
+with open(out_fn, 'a', newline = '') as csvfile:
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    writer.writerow(row)

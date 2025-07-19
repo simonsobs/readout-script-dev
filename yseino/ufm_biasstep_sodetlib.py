@@ -38,7 +38,7 @@ cfg.load_config_files(slot=slot_num)
 S = cfg.get_smurf_control()
 S.load_tune(cfg.dev.exp['tunefile'])
 
-fieldnames = ['bath_temp', 'bias_v', 'band', 'data_path','step_size']
+fieldnames = ['bath_temp', 'bias_v', 'band', 'data_path','step_voltage']
 if not os.path.exists(out_fn):
     with open(out_fn, 'w', newline = '') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -54,8 +54,9 @@ S.overbias_tes_all(
 )
 time.sleep(120)
 
-step_array = np.arange(bias_high, bias_low - 0.5, -0.5)
-#step_size = 0.01
+step_size = 0.25
+step_array = np.arange(bias_high, bias_low - step_size, -step_size)
+
 for bias_voltage_step in step_array:
     bias_array = np.zeros(S._n_bias_groups)
     bias_voltage = bias_voltage_step
@@ -70,8 +71,12 @@ for bias_voltage_step in step_array:
     row['bath_temp'] = bath_temp
     row['bias_v'] = bias_voltage_step
     row['band'] = 'all'
+    if len(bias_groups)==12:
+        row['band'] = 'all'
+    else:
+        row['band'] = '_'.join(str(bg) for bg in bias_groups)
     row['data_path'] = bsa.filepath
-    row['step_size'] = .05
+    row['step_voltage'] = .05
 
     with open(out_fn, 'a', newline = '') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -95,7 +100,7 @@ for bias_voltage_step in step_array:
     )
 
     row['data_path'] = savename
-    row['step_size'] = 0
+    row['step_voltage'] = 0
 
     with open(out_fn, 'a', newline = '') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)

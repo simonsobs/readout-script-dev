@@ -15,7 +15,7 @@ import matplotlib
 matplotlib.use('Agg')
 
 sys.path.append("/readout-script-dev/ddutcher")
-sys.path.append("readout-script-dev/rsonka/uxm_setup_optimize")
+sys.path.append("readout-script-dev/yseino/uxm_setup_optimize")
 from optimize_fracpp import optimize_fracpp
 
 logger = logging.getLogger(__name__)
@@ -50,11 +50,10 @@ def start_confluence_log_file(S,cfg,bands):
         cfile.write(f"h4. *{dev_name} {crate_and_slot}*\n")
         #cfile.write(f"optimization with `{__file__}")
         cfile.write("* Ran {{python3" + f"{' '.join(sys.argv)}" +"}}\n")
-        cfile.write("* TODO: MC, Cu mount temperature info!\n")
+        #cfile.write("* TODO: MC, Cu mount temperature info!\n")
         band_str = ','.join([str(band) for band in bands])
         cfile.write(f"* Plots of bands {band_str} taken {start_date} in " +\
                     "{{" +f"{S.plot_dir}" +"}}\n")
-        cfile.write("* resultant tunefile: **TODO**\n\n")
         cfile.write("|| ||Indiv.||-||-||-||-||togeth||-||\n")
         table_top="||SMuRF band||uc att (.5dBs)||tone power (3dB steps)||"+\
             "dc att (.5dBs)||Num. Channels||Med. White Noise (pA/rtHz)||"+\
@@ -121,8 +120,8 @@ def append_opt_band(S, low_noise_thresh, med_noise_thresh, confluence_fp,opt_ban
                          f"{S.get_att_dc(opt_band)}|{uctuner.best_length}|" +\
                          f"{fmt}{uctuner.best_wl}{fmt}| | |\n"
         cfile.write(confluence_row)
-        if opt_band == 7:
-            cfile.write("||Total|| || || || || || TODO || ||\n ")
+        #if opt_band == 7:
+        #    cfile.write("||Total|| || || || || || TODO || ||\n ")
 
 def start_or_continue(S,cfg,bands,confluence_fp='default'):
     """
@@ -181,4 +180,8 @@ def check_continuation(S,cfg,bands,old_lines):
     
     
 
+#Yudai added this function
+def write_tunefile(S,confluence_fp):
+    with open(confluence_fp,'a') as cfile:
+        cfile.write(f"* resultant tunefile: {S.tune_file}\n\n")
 

@@ -24,7 +24,7 @@ parser.add_argument('--output_file', type=str)
 
 args = parser.parse_args()
 if args.bg is None:
-    bias_groups = [0,1,2,3,4,5,6,7,8,9,10,11]
+    bias_groups = range(12)
 else:
     bias_groups = args.bg
 slot_num = args.slot
@@ -54,7 +54,7 @@ S.overbias_tes_all(
     cool_wait=3,
 )
 
-step_array = np.arange(bias_high/hlr, (bias_low - 1/hlr), -1/hlr)
+step_array = np.arange(bias_high/hlr, (bias_low - 1.0/hlr), -1.0/hlr)
 for bias_voltage_step in step_array:
     bias_array = np.zeros(S._n_bias_groups)
     bias_voltage = np.round(bias_voltage_step, 3)
@@ -76,13 +76,13 @@ for bias_voltage_step in step_array:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow(row)
 
-    #take 30s timestream for noise
+    #take 20s timestream for noise
     for bg in bias_groups:
         bias_array[bg] = bias_voltage_step
     S.set_tes_bias_bipolar_array(bias_array)
     time.sleep(10)
 
-    sid = sdl.take_g3_data(S, 30)
+    sid = sdl.take_g3_data(S, 20)
     am = sdl.load_session(cfg.stream_id, sid, base_dir=cfg.sys['g3_dir'])
     ctime = int(am.timestamps[0])
     noisedict = noise.get_noise_params(

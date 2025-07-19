@@ -29,11 +29,11 @@ parser.add_argument('--bgs', type=int, nargs='+', default=None)
 parser.add_argument('--output_file',type=str)
 
 args = parser.parse_args()
+slot_num = args.slot
 if args.bgs is None:
-    bias_groups = [5,1,2,3] #range(12)
+    bias_groups = range(12)
 else:
     bias_groups = args.bgs
-slot_num = args.slot
 bath_temp = args.temp
 out_fn = args.output_file
 
@@ -43,19 +43,21 @@ S = cfg.get_smurf_control()
 
 S.load_tune(cfg.dev.exp['tunefile'])
 
-for band in [0,1,2,3]: #,4,5,6,7]:
-    S.run_serial_gradient_descent(band);
-    S.run_serial_eta_scan(band);
-    S.set_feedback_enable(band,1) 
-    S.tracking_setup(
-        band, reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],
-        fraction_full_scale=cfg.dev.bands[band]['frac_pp'], make_plot=False,
-        save_plot=False, show_plot=False, channel=S.which_on(band),
-        nsamp=2**18, lms_freq_hz=None, meas_lms_freq=True,
-        feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],
-        feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],
-        lms_gain=cfg.dev.bands[band]['lms_gain'],
-    )
+# for band in [0,1,2,3,4,5,6,7]:
+#     if len(S.which_on(band)) == 0:
+#         continue
+#     S.run_serial_gradient_descent(band)
+#     S.run_serial_eta_scan(band)
+#     S.set_feedback_enable(band,1) 
+#     S.tracking_setup(
+#         band, reset_rate_khz=cfg.dev.bands[band]['flux_ramp_rate_khz'],
+#         fraction_full_scale=cfg.dev.bands[band]['frac_pp'], make_plot=False,
+#         save_plot=False, show_plot=False, channel=S.which_on(band),
+#         nsamp=2**18, lms_freq_hz=None, meas_lms_freq=True,
+#         feedback_start_frac=cfg.dev.bands[band]['feedback_start_frac'],
+#         feedback_end_frac=cfg.dev.bands[band]['feedback_end_frac'],
+#         lms_gain=cfg.dev.bands[band]['lms_gain'],
+#     )
 
 S.set_filter_disable(0)
 S.set_rtm_arb_waveform_enable(0)

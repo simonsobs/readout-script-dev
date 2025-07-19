@@ -28,12 +28,10 @@ parser.add_argument('--output_file',type=str)
 
 args = parser.parse_args()
 if args.bgs is None:
-    bias_groups = range(12)
+    bias_groups = [5,3,2,1]#range(12)
 else:
     bias_groups = args.bgs
 slot_num = args.slot
-if slot_num == 6:
-    bias_groups = [1,2,3,5]
 bath_temp = args.temp
 out_fn = args.output_file
 
@@ -109,7 +107,14 @@ for bias_gp in bias_groups:
     row['bias_voltage'] = 'IV 19 to 0'
     row['type'] = 'IV'
     print(f'Taking IV on bias line {bias_gp}')
-      
+
+    if bias_gp == 3:
+        ob_voltage = 18
+    elif bias_gp in [5, 2]:
+        ob_voltage = 15
+    else:
+        ob_voltage = 13
+
     row['data_path'] = det_ops.take_iv(
         S,
         cfg,
@@ -118,7 +123,7 @@ for bias_gp in bias_groups:
         bias_high=19,
         bias_low=0,
         bias_step=0.025,
-        overbias_voltage=15,
+        overbias_voltage=ob_voltage,
         cool_wait=30,
         high_current_mode=False,
         make_channel_plots=False,

@@ -47,13 +47,13 @@ if not os.path.exists(out_fn):
 S.overbias_tes_all(
     bias_groups=bias_groups,
     high_current_mode=False,
-    overbias_voltage=15,
+    overbias_voltage=13,
     overbias_wait=2,
     tes_bias=bias_high,
     cool_wait=3,
 )
 
-step_array = np.arange(bias_high, (bias_low - 0.5), -0.5)
+step_array = np.arange(bias_high, (bias_low - 0.25), -0.25)
 for bias_voltage_step in step_array:
     bias_array = np.zeros(S._n_bias_groups)
     bias_voltage = np.round(bias_voltage_step, 3)
@@ -62,11 +62,7 @@ for bias_voltage_step in step_array:
     S.set_tes_bias_bipolar_array(bias_array) 
     time.sleep(30)
 
-    if bias_voltage < 12:
-        transition = True
-    else:
-        transition = False
-    bsa = take_bias_steps(S, cfg, analysis_kwargs={'transition':transition, 'fit_tmin':7.5e-4}, )
+    bsa = take_bias_steps(S, cfg, analysis_kwargs={'transition':True, 'fit_tmin':7.5e-4}, )
 
     row = {}
     row['bath_temp'] = bath_temp
