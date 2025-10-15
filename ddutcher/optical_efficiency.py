@@ -12,6 +12,9 @@ from scipy.interpolate import interp1d
 from scipy.integrate import quad
 from scipy.optimize import curve_fit
 
+
+# Filter data mostly copied from /home/kaiwenz/opt_eff_packaged/filters/,
+# but with new data added.
 filter_dir = "/home/ddutcher/data/filters/"
 
 
@@ -30,7 +33,7 @@ def filter_func(filters):
     -------
     filter_func : function
         Function that, when supplied with a list of frequencies in Hz,
-        returns the transmission spectrum at those frequencies.
+        returns the transmission of the filter stack at those frequencies.
     """
     if isinstance(filters, str):
         if filters.lower() not in ['lf','mf','uhf']:
@@ -80,7 +83,19 @@ def bandpass_funcs(array_freq, bolocalc_version='V3r6', peak_normalize=True):
     ----------
     array_freq : {'lf', 'mf', or 'uhf'}
     bolocalc_version : {'v3r6','v3r7','v3r8'}
+        Which version of the bandpasses to use. 'v3r6' is simulated,
+        'v3r7' is end-to-end measured in a LAT OT, 'v3r8' is also simulated
+        but with a different normalization.
     peak_normalize : bool
+        If True, will divide the bandpass by its maximum value, in which case the
+        v3r6 bands == v3r8 bands.
+
+    Returns
+    -------
+    freq1_func, freq2_func: 2-tuple of function
+        Functions that, when supplied with a list of frequencies in Hz,
+        return the transmission amplitude of the detector bandpass for
+        the low band and high band, respectively.
     """
     if array_freq.lower == "lf":
         bandpass_dir = "/home/ddutcher/data/filters"
@@ -91,6 +106,7 @@ def bandpass_funcs(array_freq, bolocalc_version='V3r6', peak_normalize=True):
             "config/Bands/Detectors/"
         )
     if array_freq.lower() == "lf":
+        # Note: This is for NIST arrays. UCB arrays will be different!
         array_freq = "NIST_LF"
     freq1 = np.loadtxt(os.path.join(bandpass_dir, f"{array_freq.upper()}_1.txt"))
     freq2 = np.loadtxt(os.path.join(bandpass_dir, f"{array_freq.upper()}_2.txt"))
@@ -106,6 +122,31 @@ def bandpass_funcs(array_freq, bolocalc_version='V3r6', peak_normalize=True):
 
 
 def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
+    """
+    Computes the average response of masked detectors during a cold load ramp.
+
+    Parameters
+    ----------
+    `cl_data`: dict or str
+        The output of psatvstemp_analysis.collect_psatvstemp_data()
+    `used_temps`: array-like
+        A list of the cold load temperatures actually used in the analysis.
+        This is used to determine the number of data points and the 
+        initial cold load temperature that will be used as the baseline from
+        which to compute the change in saturation power at each data point.
+        This is determined automatically from the input for most data; for older
+        data sets it may need to be manually specified.
+    `array_freq`: {'lf, 'mf', 'uhf'}
+        Used for determining which bias lines are of the same frequency and
+        for labeling the output.
+
+    Returns
+    -------
+    `avg_dark_deltaPsat`: dict
+        The average change in saturation power across masked detectors of each
+        observing frequency corresponding to each cold load temperature point,
+        referenced to the starting temperature.
+    """
     if isinstance(cl_data,str):
         cl_data = np.load(cl_data,allow_pickle=True).item()
 
@@ -120,8 +161,9 @@ def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
         raise ValueError("`array_freq` must be one of {'lf','mf','uhf'}")
     if array_freq.lower() == "lf":
         freq1, freq2 = "30", "40"
-        bl_freq_map = {bl: freq1 for bl in [10,11]}#[0, 3, 5, 10, 11]}
-        bl_freq_map.update({bl: freq2 for bl in [8,9]})#[1, 2, 8, 9]})
+        # Note: this is for NIST arrays. UCB arrays are different!
+        bl_freq_map = {bl: freq1 for bl in [10,11]} #[0, 3, 5, 10, 11]}
+        bl_freq_map.update({bl: freq2 for bl in [8,9]}) #[1, 2, 8, 9]})
     else:
         if array_freq.lower() == "uhf":
             freq1, freq2 = "220", "280"
@@ -133,22 +175,24 @@ def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
     avg_dark_deltaPsat = {freq1:[[] for temp in used_temps],
                           freq2:[[] for temp in used_temps]
                          }
-
+    # Loop over bias groups, smurf bands, and smurf channels
     for bg in cl_data['data'].keys():
         if bg in cl_data['metadata']['optical_bl']:
             continue
         freq = bl_freq_map[bg]
         for sb in cl_data['data'][bg].keys():
             for ch, d in cl_data['data'][bg][sb].items():
+                # Need a minimum of two data points to compute opt. eff.
                 if len(d['temp']) < 2:
                     continue
+                # If first cold load temp is missing, this method won't work.
                 if d['temp'][0] != used_temps[0]:
                     continue
                 delta_psat = d['psat'] - d['psat'][0]
                 for ind, t in enumerate(d['temp']):
                     idx = used_temps.index(t)
                     avg_dark_deltaPsat[freq][idx] += [delta_psat[ind]]
-
+    # Dark correction is simple average over all masked detectors.
     for freq, arr in avg_dark_deltaPsat.items():
         for i, dp_arr in enumerate(arr):
             avg_dark_deltaPsat[freq][i] = np.nanmean(dp_arr)
@@ -159,7 +203,41 @@ def compute_dark_correction(cl_data, used_temps=None, array_freq='mf'):
 def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
                    do_dark_correction=True, dark_correction=None, **bandpass_args,
                   ):
+    """
+    Analyze Psat vs. cold load temperature data to measure optical efficiency.
+    
+    Parameters
+    ----------
+    `cl_data`: dict or str
+        The output of psatvstemp_analysis.collect_psatvstemp_data() 
+    `used_temps`: array-like
+        A list of the cold load temperatures actually used in the analysis.
+        This is used to determine the number of data points and the 
+        initial cold load temperature that will be used as the baseline from
+        which to compute the change in saturation power at each data point.
+        This is determined automatically from the input for most data; for older
+        data sets it may need to be manually specified.
+    `array_freq`: {'lf, 'mf', 'uhf'}
+        Used for determining (1) which bias lines are of the same frequency,
+        (2) detector bandpasses (3) default LPE filter bandpasses.
+    `filters`: str or list of str
+        If left as None, will be set to `array_freq` and the standard set
+        of Princeton LPE filters is used. Passed to filter_func().
+    `do_dark_correction`: bool
+    `dark_correction` : dict, default None.
+        Dark correction dictionary, containing Psat offsets to be applied for
+        each observing frequency for each cold load temperature.
+        If left as None, and do_dark_correction==True, compute_dark_correction()
+        will be called and its result used.
+    **bandpass_args
+        Arguments to be passed to bandpass_funcs()
 
+    Returns
+    -------
+    `eta_dict` : dict
+        Dictionary containing optical efficiency values, ordered by
+        bias group -> smurf band-> smurf channel.
+    """
     if isinstance(cl_data, str):
         cl_data = np.load(cl_data,allow_pickle=True).item()
 
@@ -169,6 +247,7 @@ def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
         except KeyError:
             raise ValueError(
                 "Must specify `used_temps` for older version CL datafile.")
+    # Use array_freq to determine blackbody integration limits and bias lines mapping.
     if array_freq.lower() == 'mf':
         freq1, freq2 = '90','150'
         lower_f,upper_f = 62e9, 199e9
@@ -194,10 +273,12 @@ def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
 
     if filters is None:
         filters = array_freq
-
     filt_func = filter_func(filters)
     freq1_func, freq2_func = bandpass_funcs(array_freq, **bandpass_args)
-
+    # Define the functions to fit the data.
+    # The radiated power is calculated as an integral of the blackbody formula
+    # in the beam-filling limit multiplied by the bandpass*filter transmission.
+    # 'C' is Psat with no optical loading, 'eta' is optical efficiency.
     def freq1_fit(temps, C, eta):
         ans=np.zeros(len(temps))
         for i, T in enumerate(temps):
@@ -220,10 +301,6 @@ def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
     }
 
     for bg in cl_data['data'].keys():
-        if bg in cl_data['metadata']['optical_bl']:
-            coupling = 'optical'
-        else:
-            coupling = 'dark'
         freq = bl_freq_map[bg]
         if freq==freq1:
             fit_func = freq1_fit
@@ -239,15 +316,13 @@ def compute_opteff(cl_data, used_temps=None, array_freq='mf', filters=None,
                     for i, t in enumerate(temp):
                         idx = used_temps.index(t)
                         psat[i] -= dark_correction[freq][idx]
-
+                # Need at least two data points
                 if len(temp)<2:
                     continue
-
                 try:
                     popt, pcov = curve_fit(fit_func, temp, psat)
                 except:
                     continue
-
                 # key creation
                 if bg not in eta_dict['data'].keys():
                     eta_dict['data'][bg] = dict()
