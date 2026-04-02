@@ -242,8 +242,9 @@ def tes_yield(S, target_bg, out_fn, start_time):
         ax_psat.set_xlabel('P_sat (pW)')
         ax_psat.set_ylabel('count')
         ax_psat.grid()
-        ax_psat.hist(psat, range=(0,25), bins=25,histtype= u'step',linewidth=2,color = 'r')
-#        ax_psat.hist(psat, range=(0,50), bins=25,histtype= u'step',linewidth=2,color = 'r') #Temporally YS edited here for UHF..
+        ax_psat.hist(psat, range=(0,4), bins=25,histtype= u'step',linewidth=2,color = 'r') #LF
+        #ax_psat.hist(psat, range=(0,25), bins=25,histtype= u'step',linewidth=2,color = 'r') #MF
+        #ax_psat.hist(psat, range=(0,50), bins=25,histtype= u'step',linewidth=2,color = 'r') #UHF
         ax_psat.axvline(np.median(psat), linestyle='--', color='gray')
         ax_psat.set_title('bl {}, yield {} median Psat {:.2f} pW'.format(
             bl,count_num,np.median(psat))

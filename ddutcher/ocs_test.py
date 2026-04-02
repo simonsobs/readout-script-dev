@@ -1,23 +1,23 @@
 #ocs_test.py
 import argparse
-import numpy as np
-import os
-import time
-import sodetlib as sdl
-from sodetlib import noise
 from sodetlib.det_config  import DetConfig
-from sodetlib.operations.bias_steps import take_bias_steps
-import csv
 
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--slot', type=int)
+parser.add_argument('--bgs', nargs='+', default=None, type=int)
+parser.add_argument('--temp', type=int)
 args = parser.parse_args()
-slot_num = args.slot
 
 cfg = DetConfig()
-cfg.load_config_files(slot=slot_num)
-S = cfg.get_smurf_control()
-S.load_tune(cfg.dev.exp['tunefile'])
+cfg.load_config_files(slot=args.slot)
 
+if args.bgs is None:
+    bgs = range(12)
+else:
+    bgs = args.bgs
+
+for bg in bgs:
+    print(bg)
+print(args.temp)
 print('Success!')

@@ -2,7 +2,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
-from sodetlib.operations import uxm_setup as op
+import sodetlib.operations as op
 from sodetlib import noise
 
 
@@ -48,7 +48,7 @@ def uxm_relock(S, cfg, bands=None, setup_notches=False, estimate_phase_delay=Fal
         if not setup_notches:
             print('running relock')
             S.relock(band, tone_power=cfg.dev.bands[band]['tone_power'],
-                     res_num=np.arange(0,50),
+#                     res_num=np.arange(0,75),
             )
         else:
             S.load_master_assignment(band, S.freq_resp[band]['channel_assignment'])
@@ -83,6 +83,8 @@ def uxm_relock(S, cfg, bands=None, setup_notches=False, estimate_phase_delay=Fal
             lms_gain=cfg.dev.bands[band]["lms_gain"],
         )
 
+    op.tracking.relock_tracking_setup(S, cfg, bands=args.bands)
+
 
 if __name__ == "__main__":
     import argparse
@@ -108,7 +110,7 @@ if __name__ == "__main__":
     S = cfg.get_smurf_control()
 
     # # power amplifiers
-    success = op.setup_amps(S, cfg)
+    success = op.uxm_setup.setup_amps(S, cfg)
     if not success:
         raise OSError("Amps could not be powered.")
 
@@ -119,6 +121,7 @@ if __name__ == "__main__":
         setup_notches=args.setup_notches,
         estimate_phase_delay=args.estimate_phase_delay,
     )
+
     S.load_tune(cfg.dev.exp['tunefile'])
 
     nsamps = S.get_sample_frequency() * args.acq_time

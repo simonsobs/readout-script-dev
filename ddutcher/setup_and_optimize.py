@@ -9,7 +9,7 @@ import os, sys
 import numpy as np
 import argparse
 from sodetlib.det_config import DetConfig
-from sodetlib.operations import uxm_setup as op
+import sodetlib.operations as op
 from sodetlib import noise
 import logging
 
@@ -88,7 +88,7 @@ else:
     raise ValueError("Assembly must be either 'ufm' or 'umm'.")
 
 # power amplifiers
-success = op.setup_amps(S, cfg)
+success = op.uxm_setup.setup_amps(S, cfg)
 if not success:
     raise OSError("Amps could not be powered.")
 
@@ -111,3 +111,7 @@ nperseg = 2 ** round(np.log2(nsamps / 5))
 noise.take_noise(
     S, cfg, acq_time=args.acq_time, show_plot=False, save_plot=True, nperseg=nperseg,
 )
+
+# take bgmap
+if args.assem_type == "ufm":
+    op.take_bgmap(S, cfg)

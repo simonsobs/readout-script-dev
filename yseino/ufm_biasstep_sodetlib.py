@@ -23,10 +23,7 @@ parser.add_argument('--temp', type=str)
 parser.add_argument('--output_file', type=str)
 
 args = parser.parse_args()
-if args.bg is None:
-    bias_groups = [0,1,2,3,4,5,6,7,8,9,10,11]
-else:
-    bias_groups = args.bg
+bias_groups = [8,9,10,11]
 slot_num = args.slot
 bath_temp = args.temp
 out_fn = args.output_file
@@ -54,7 +51,7 @@ S.overbias_tes_all(
 )
 time.sleep(120)
 
-step_size = 0.25
+step_size = 0.2
 step_array = np.arange(bias_high, bias_low - step_size, -step_size)
 
 for bias_voltage_step in step_array:

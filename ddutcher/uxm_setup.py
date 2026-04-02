@@ -6,7 +6,7 @@ from scipy import signal
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from sodetlib.operations import uxm_setup as op
+import sodetlib.operations as op
 from sodetlib import noise
 import logging
 
@@ -61,7 +61,7 @@ def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
         stop_freq=250
         S.find_freq(band, start_freq=start_freq, stop_freq=stop_freq, tone_power=cfg.dev.bands[band]["tone_power"],
 #                    grad_kernel_width=2, pad=1, min_gap=1,
-                    amp_cut=0.01, grad_cut=0.01,
+#                    amp_cut=0.01, grad_cut=0.01,
                     make_plot=True)
         logger.info("running setup notches")
         S.setup_notches(
@@ -101,7 +101,7 @@ def uxm_setup(S, cfg, bands=None, estimate_phase_delay=False):
 
     S.save_tune()
     cfg.dev.update_experiment({'tunefile': S.tune_file}, update_file=True)
-
+    op.tracking.relock_tracking_setup(S, cfg, bands=bands)
 
 if __name__ == "__main__":
     import argparse
@@ -152,11 +152,13 @@ if __name__ == "__main__":
     S = cfg.get_smurf_control(dump_configs=True, make_logfile=(numeric_level != 10))
 
     # # power amplifiers
-    success = op.setup_amps(S, cfg)
+    success = op.uxm_setup.setup_amps(S, cfg)
     if not success:
         raise OSError("Amps could not be powered.")
     # run the defs in this file
     uxm_setup(S=S, cfg=cfg, bands=args.bands, estimate_phase_delay=args.estimate_phase_delay)
+
+    S.load_tune(cfg.dev.exp['tunefile'])
     # take noise and plot histograms
     nsamps = S.get_sample_frequency() * args.acq_time
     nperseg = 2 ** round(np.log2(nsamps/5))
