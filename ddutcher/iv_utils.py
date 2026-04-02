@@ -1,6 +1,7 @@
 import os, sys
 import numpy as np
 import matplotlib.pyplot as plt
+import sodetlib as sdl
 
 
 def plot_yield_iv(
@@ -8,6 +9,9 @@ def plot_yield_iv(
     target_bg=range(12),
     x_axis='p_tes',
     y_axis='R',
+    psat_level = 0.9,
+    min_psat=0,
+    max_psat=np.inf,
     plot_title="",
     return_data=False,
     **plot_kwargs,
@@ -34,7 +38,7 @@ def plot_yield_iv(
 
     all_bl_iv = dict()
 
-    if len(data) == 1:
+    if False: #len(data) == 1:
         # if serial IV, read in the one file.
         now = np.load(data[0], allow_pickle=True).item()
         for i, bl in enumerate(target_bg):
@@ -55,10 +59,10 @@ def plot_yield_iv(
                 d['p_sat'] *= 1e12
                 d['v_bias'] = now['v_bias']
                 # IV cuts
-                if (d['R'][-1] < 5e-3):
-                    continue
-                if len(np.where(d['R'] > 15e-3)[0]) > 0:
-                    continue
+#                 if (d['R'][-1] < 5e-3):
+#                     continue
+#                 if len(np.where(d['R'] > 15e-3)[0]) > 0:
+#                     continue
                 if sb not in all_bl_iv[bl].keys():
                     all_bl_iv[bl][sb] = dict()
                 all_bl_iv[bl][sb][chan] = d
@@ -71,7 +75,8 @@ def plot_yield_iv(
                 fp = data[ind]
             except KeyError:
                 fp = data_dict[bl]
-            fp = fp.replace("/data/smurf_data/", "/data2/smurf_data/")
+            if not os.path.isfile(fp):
+                fp = fp.replace("/data/smurf_data/", "/data2/smurf_data/")
             if bl not in all_bl_iv.keys():
                 all_bl_iv[bl] = dict()
             now = np.load(fp, allow_pickle=True).item()
@@ -83,12 +88,20 @@ def plot_yield_iv(
                 if len(now[sb].keys()) != 0:
                     all_bl_iv[bl][sb] = dict()
                 for chan, d in now[sb].items():
-                    # IV cuts
+#                     IV cuts
                     if (d['R'][-1] < 2e-3):
                         continue
                     elif np.abs(np.std(d["R"][-100:]) / np.mean(d["R"][-100:])) > 5e-3:
                         continue
                     all_bl_iv[bl][sb][chan] = d
+                    try:
+                        psat_idx = np.where(d["R"] < psat_level * d["R_n"])[0][-1]
+                        psat = d["p_tes"][psat_idx]
+                    except:
+                        psat = np.nan
+                    if psat > max_psat or psat < min_psat:
+                        psat = np.nan
+                    d['p_sat'] = psat
 
     fig, axs = plt.subplots(3, 4,figsize=(9,9), sharex=True, sharey=True)
     tot = 0
@@ -176,7 +189,10 @@ def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
         for bl in target_bg:
             # if per-bg IVs, read in correct file
             try:
-                ind = np.where(data_dict['bias_line'] == bl)[0][0]
+                if data_dict['bias_line'].dtype != int:
+                    ind = np.where(data_dict['bias_line'] == str(bl))[0][0]
+                else:
+                    ind = np.where(data_dict['bias_line'] == bl)[0][0]
                 fp = data[ind]
             except KeyError:
                 fp = data_dict[bl]
@@ -184,10 +200,7 @@ def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
                 fp = fp.replace("/data/smurf_data/", "/data2/smurf_data/")
             if bl not in all_bl_iv.keys():
                 all_bl_iv[bl] = dict()
-    #         try:
             now = np.load(fp, allow_pickle=True).item()
-    #         except:
-    #            print(bl, ind, data, data[ind])
             if 'data' in now.keys():
                 now = now['data']
             for sb in now.keys():
@@ -197,9 +210,9 @@ def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
                     all_bl_iv[bl][sb] = dict()
                 for chan, d in now[sb].items():
                     # IV cuts
-                    if (d['R'][-1] < 5e-3):
+                    if (d['R'][-1] < 2e-3):
                         continue
-                    elif len(np.where(d['R'] > 15e-3)[0]) > 0:
+                    elif np.abs(np.std(d["R"][-100:]) / np.mean(d["R"][-100:])) > 5e-3:
                         continue
     #                 ind2 = np.where(d['p_tes'] < 0.05)[0][-1]
     #                 if len(np.where(d['R'][ind2:] > 15e-3)[0]) > 0:
@@ -215,6 +228,7 @@ def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
     tune = np.load(tunefile, allow_pickle=True).item()
     nrows = len(np.unique(target_bands//4))
     fig, axes = plt.subplots(nrows=nrows, figsize=(9,4*nrows))
+
     for smurf_band in sorted(target_bands):
         if nrows > 1:
             ax = axes[smurf_band // 4]
@@ -236,6 +250,7 @@ def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
                     good_freqs += [freqs[chans == ch][0]]
             ax.vlines(good_freqs, linestyle ='-', color=bl_colors[bl], linewidth=1,
                      ymin=0, ymax=1, label=label)
+
     for ax in np.atleast_1d(axes):
 #         handles, labels = ax.get_legend_handles_labels()
 #         order = [labels.index(str(bl)) for bl in (np.arange(6) + half * 6)]
@@ -252,3 +267,51 @@ def plot_iv_bgmap(metadata, tunefile, target_bg=range(12),
     
     if return_bgmap:
         return bgmap
+
+
+def load_iv_am(iv_fp_data):
+    """
+    Load the raw data corresponding to an IV curve.
+    Intended to be run on Princeton analysis or smurf-server machines.
+    """
+    if isinstance(iv_fp_data, str):
+        if not os.path.isfile(iv_fp_data):
+            iv_fp_data.replace('/data/', '/data2/')
+        if not os.path.isfile(iv_fp_data):
+            raise FileNotFoundError(iv_fp_data)
+
+        if iv_fp_data.endswith("iv_analysis.npy"):
+            legacy = False
+        elif iv_fp_data.endswith("iv_analyze.npy"):
+            legacy = True
+        else:
+            raise TypeError(f"Unsupported IV file type: {iv_fp_data}")
+
+        iv_fp_data = np.load(iv_fp_data, allow_pickle=True).item()
+
+    elif isinstance(iv_fp_data, dict):
+        if 'metadata' in iv_fp_data.keys():
+            legacy = True
+        else:
+            legacy = False
+    else:
+        raise TypeError(f"Input must be str or dict, not {type(iv_fp_data)}")
+
+    if legacy:
+        stream_id = iv_fp_data['metadata']['iv_info']['output_dir'].split('/')[4]
+        sid = iv_fp_data['metadata']['iv_info']['session id']
+    else:
+        stream_id = iv_fp_data['meta']['stream_id']
+        sid = iv_fp_data['sid']
+    try:
+        am = sdl.load_session(stream_id, sid)
+    except FileNotFoundError:
+        base_dir="/data2/timestreams"
+    try:
+        am = sdl.load_session(stream_id, sid, base_dir=base_dir)
+    except FileNotFoundError as e:
+        raise Exception(
+            "Timestream data not found on local disks. Try on simons1 instead."
+        ) from e
+
+    return am
