@@ -284,6 +284,9 @@ def load_iv_am(iv_fp_data):
             legacy = False
         elif iv_fp_data.endswith("iv_analyze.npy"):
             legacy = True
+        elif iv_fp_data.endswith("iv_info.npy"):
+            iv_fp_data = iv_fp_data.replace("iv_info.npy", "iv_analyze.npy")
+            legacy = True
         else:
             raise TypeError(f"Unsupported IV file type: {iv_fp_data}")
 
