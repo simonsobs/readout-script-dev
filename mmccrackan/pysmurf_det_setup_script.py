@@ -14,6 +14,7 @@ import os
 
 from sodetlib.det_config import DetConfig
 from sodetlib.operations import bias_steps
+from sodetlib.operations.bias_dets import bias_to_rfrac, bias_to_volt_arr
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -32,22 +33,22 @@ if __name__ == "__main__":
     S.load_tune(cfg.dev.exp['tunefile'])
 
     # get bias voltage for rfrac
-    biases = bias_steps.bias_to_rfrac(S, cfg, rfrac=rfrac, math_only=True)
+    biases = bias_to_rfrac(S, cfg, rfrac=rfrac, math_only=True)
 
     # increment biases by twice the bias increment
     incremented_biases = biases + 2 * bias_increment
-    bias_steps.bias_to_volt_arr(S, cfg, incremented_biases)
+    bias_to_volt_arr(S, cfg, incremented_biases)
 
     # take the first bias step
     bias_steps.take_bias_steps(S, cfg)
 
     # increment biases by the bias increment
     incremented_biases = biases + bias_increment
-    bias_steps.bias_to_volt_arr(S, cfg, incremented_biases)
+    bias_to_volt_arr(S, cfg, incremented_biases)
 
     # take second bias step
     bias_steps.take_bias_steps(S, cfg)
 
     # return to the first bias
-    bias_steps.bias_to_volt_arr(S, cfg, biases)
+    bias_to_volt_arr(S, cfg, biases)
     bias_steps.take_bias_steps(S, cfg)
