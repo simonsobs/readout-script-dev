@@ -10,6 +10,7 @@ python3 pysmurf_det_setup_script.py --rfrac 0.5 --bias-increment 0.1
 """
 
 import argparse
+import os
 
 from sodetlib.det_config import DetConfig
 from sodetlib.operations import bias_steps
@@ -24,9 +25,11 @@ if __name__ == "__main__":
     bias_increment = args.bias_increment
 
     # get config and controller
+    slot = os.environ['SLOT']
     cfg = DetConfig()
-    _ = cfg.parse_args()
-    S = cfg.get_smurf_control(dump_configs=True)
+    cfg.load_config_files(slot=slot)
+    S = cfg.get_smurf_control()
+    S.load_tune(cfg.dev.exp['tunefile'])
 
     # get bias voltage for rfrac
     biases = bias_steps.bias_to_rfrac(S, cfg, rfrac=rfrac, math_only=True)
